@@ -27,7 +27,7 @@
 # below may wind up stomping over this value.
 set(build_shared_libs "${BUILD_SHARED_LIBS}")
 
-# Core USD Package Requirements 
+# Core USD Package Requirements
 # ----------------------------------------------
 
 # Threads.  Save the libraries needed in PXR_THREAD_LIBS;  we may modify
@@ -53,14 +53,14 @@ if(PXR_ENABLE_PYTHON_SUPPORT)
     # --Jinja2
     find_package(Jinja2)
 else()
-    find_package(PythonInterp 2.7 REQUIRED)
- 
+    #find_package(PythonInterp 2.7 REQUIRED)
+
     # --Boost
-    find_package(Boost
-        COMPONENTS
-            program_options
-        REQUIRED
-    )
+    #find_package(Boost
+    #    COMPONENTS
+    #        program_options
+    #    REQUIRED
+    #)
 endif()
 
 # --TBB
@@ -72,7 +72,8 @@ if(WIN32)
     # Math functions are linked automatically by including math.h on Windows.
     set(M_LIB "")
 else()
-    find_library(M_LIB m)
+    #find_library(M_LIB m)
+    set(M_LIB "m")
 endif()
 
 if (NOT PXR_MALLOC_LIBRARY)
@@ -97,7 +98,7 @@ endif()
 
 if (PXR_BUILD_IMAGING)
     # --OpenEXR
-    find_package(OpenEXR REQUIRED)
+    #find_package(OpenEXR REQUIRED)
     # --OpenImageIO
     if (PXR_BUILD_OPENIMAGEIO_PLUGIN)
         find_package(OpenImageIO REQUIRED)

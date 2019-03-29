@@ -36,7 +36,7 @@
 /// \addtogroup group_arch_SystemFunctions
 ///@{
 
-#if defined(ARCH_OS_LINUX)
+#if defined(ARCH_OS_LINUX) && defined(ARCH_CPU_INTEL)
 #include <x86intrin.h>
 #elif defined(ARCH_OS_DARWIN)
 #include <mach/mach_time.h>
@@ -69,6 +69,17 @@ ArchGetTickTime()
 #elif defined(ARCH_CPU_INTEL)
     // On Intel we'll use the rdtsc instruction.
     return __rdtsc();
+#elif defined(ARCH_CPU_ARM)
+    // Assume aarch64
+    // https://github.com/google/benchmark/blob/v1.1.0/src/cycleclock.h#L116
+
+    // System timer of ARMv8 runs at a different frequency than the CPU's.
+    // The frequency is fixed, typically in the range 1-50MHz.  It can be
+    // read at CNTFRQ special register.  We assume the OS has set up
+    // the virtual timer properly.
+    int64_t virtual_timer_value;
+    asm volatile("mrs %0, cntvct_el0" : "=r"(virtual_timer_value));
+    return uint64_t(virtual_timer_value);
 #else
 #error Unknown architecture.
 #endif
@@ -99,7 +110,7 @@ double ArchTicksToSeconds(uint64_t nTicks);
 /// \c ArchGetTickTime().
 ARCH_API
 uint64_t ArchSecondsToTicks(double seconds);
-    
+
 /// Get nanoseconds per tick. Useful when converting ticks obtained from
 /// \c ArchTickTime()
 ARCH_API

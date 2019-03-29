@@ -8,8 +8,8 @@ set(DIRS
     usdstitch
     usdstitchclips
     usdzip
-    sdfdump
-    sdffilter
+    #sdfdump
+    #sdffilter
 )
 
 foreach(d ${DIRS})

@@ -127,7 +127,7 @@ pxr_library(usd
         wrapTyped.cpp
         wrapUtils.cpp
         wrapVariantSets.cpp
-        wrapVersion.cpp 
+        wrapVersion.cpp
         wrapZipFile.cpp
 
     PYMODULE_FILES
@@ -276,17 +276,18 @@ pxr_build_test(testUsdTemplatedIO
         testenv/testUsdTemplatedIO.cpp
 )
 
-pxr_build_test(testUsdStageThreading
-    LIBRARIES
-        arch
-        tf
-        work
-        sdf
-        usd
-        ${Boost_PROGRAM_OPTIONS_LIBRARY}
-    CPPFILES
-        testenv/testUsdStageThreading.cpp
-)
+# Disabled since this uses boost::program_options
+#pxr_build_test(testUsdStageThreading
+#    LIBRARIES
+#        arch
+#        tf
+#        work
+#        sdf
+#        usd
+#        ${Boost_PROGRAM_OPTIONS_LIBRARY}
+#    CPPFILES
+#        testenv/testUsdStageThreading.cpp
+#)
 
 pxr_build_test(testUsdThreadedAuthoring
     LIBRARIES
