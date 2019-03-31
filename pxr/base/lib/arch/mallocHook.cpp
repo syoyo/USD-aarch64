@@ -50,10 +50,10 @@ using std::string;
  * an extern "C"). Allocator libraries must provide these hooks in order for
  * ArchMallocHook to work.
  */
-extern void* (*__MALLOC_HOOK_VOLATILE __malloc_hook)(size_t __size,  const void*);
-extern void* (*__MALLOC_HOOK_VOLATILE __realloc_hook)(void* __ptr, size_t __size, const void*);
-extern void* (*__MALLOC_HOOK_VOLATILE __memalign_hook)(size_t __alignment, size_t __size, const void*);
-extern void (*__MALLOC_HOOK_VOLATILE __free_hook)(void* __ptr,  const void*);
+extern void* (*__MALLOC_HOOK_VOLATILE __pxr_malloc_hook)(size_t __size,  const void*);
+extern void* (*__MALLOC_HOOK_VOLATILE __pxr_realloc_hook)(void* __ptr, size_t __size, const void*);
+extern void* (*__MALLOC_HOOK_VOLATILE __pxr_memalign_hook)(size_t __alignment, size_t __size, const void*);
+extern void (*__MALLOC_HOOK_VOLATILE __pxr_free_hook)(void* __ptr,  const void*);
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -95,7 +95,7 @@ _MallocProvidedBySameLibraryAs(const char* functionName,
     }
 
     Dl_info functionInfo, mallocInfo;
-    if (!dladdr(function, &functionInfo) || 
+    if (!dladdr(function, &functionInfo) ||
         !dladdr((void *)malloc, &mallocInfo)) {
         return false;
     }

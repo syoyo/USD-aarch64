@@ -56,11 +56,9 @@ else()
     #find_package(PythonInterp 2.7 REQUIRED)
 
     # --Boost
-    #find_package(Boost
-    #    COMPONENTS
-    #        program_options
-    #    REQUIRED
-    #)
+    find_package(Boost
+        REQUIRED
+    )
 endif()
 
 # --TBB

@@ -201,10 +201,10 @@ TfIsLink(string const& path)
 bool
 TfIsWritable(string const& path)
 {
-#if defined(ARCH_OS_LINUX)
+#if defined(ARCH_OS_LINUX) && !defined(ANDROID)
     // faccessat accounts for mount read-only status. For maintaining legacy
     // behavior, use faccessat instead of access so we can use the effective
-    // UID instead of the real UID. 
+    // UID instead of the real UID.
     return faccessat(AT_FDCWD, path.c_str(), W_OK, AT_EACCESS) == 0;
 #else
     ArchStatType st;
@@ -398,7 +398,7 @@ TfReadDir(
          result && rc == 0;
          rc = readdir_r(dir, &entry, &result)) {
 
-        if (strcmp(entry.d_name, ".") == 0 || 
+        if (strcmp(entry.d_name, ".") == 0 ||
             strcmp(entry.d_name, "..") == 0)
             continue;
 
@@ -442,7 +442,7 @@ TfReadDir(
     closedir(dir);
 #endif
     return true;
-}    
+}
 
 static void
 Tf_ReadDir(
@@ -462,7 +462,7 @@ Tf_ReadDir(
         if (onError) {
             onError(dirPath, errMsg);
         }
-}    
+}
 
 struct Tf_FileId {
     Tf_FileId(const ArchStatType& st)

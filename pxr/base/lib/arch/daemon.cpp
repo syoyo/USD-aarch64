@@ -57,7 +57,11 @@ ArchCloseAllFiles(int nExcept, const int* exceptFds)
 
     if (limits.rlim_cur == RLIM_INFINITY)
     {
+#if defined(ANDROID)
+        maxfd = 256; // Android libc does not define `NOFILE`
+#else
         maxfd = NOFILE;
+#endif
     }
     else
     {
