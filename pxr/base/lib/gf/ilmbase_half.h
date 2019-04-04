@@ -2,9 +2,9 @@
 //
 // Copyright (c) 2002, Industrial Light & Magic, a division of Lucas
 // Digital Ltd. LLC
-// 
+//
 // All rights reserved.
-// 
+//
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are
 // met:
@@ -16,8 +16,8 @@
 // distribution.
 // *       Neither the name of Industrial Light & Magic nor the names of
 // its contributors may be used to endorse or promote products derived
-// from this software without specific prior written permission. 
-// 
+// from this software without specific prior written permission.
+//
 // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 // "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
 // LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -314,9 +314,9 @@ GF_API void        printBits   (char  c[35], float f);
 //	floating point number, whose bits are arranged as follows:
 //
 //	    31 (msb)
-//	    | 
+//	    |
 //	    | 30     23
-//	    | |      | 
+//	    | |      |
 //	    | |      | 22                    0 (lsb)
 //	    | |      | |                     |
 //	    X XXXXXXXX XXXXXXXXXXXXXXXXXXXXXXX
@@ -360,7 +360,7 @@ GF_API void        printBits   (char  c[35], float f);
 //	Here is the bit-layout for a half number, h:
 //
 //	    15 (msb)
-//	    | 
+//	    |
 //	    | 14  10
 //	    | |   |
 //	    | |   | 9        0 (lsb)
@@ -465,7 +465,7 @@ half::half (float f)
 	// to do the float-to-half conversion.
 	//
 
-	register int e = (x.i >> 23) & 0x000001ff;
+	int e = (x.i >> 23) & 0x000001ff;
 
 	e = _eLut[e];
 
@@ -476,7 +476,7 @@ half::half (float f)
 	    // bits and combine it with the sign and exponent.
 	    //
 
-	    register int m = x.i & 0x007fffff;
+	    int m = x.i & 0x007fffff;
 	    _h = e + ((m + 0x00000fff + ((m >> 13) & 1)) >> 13);
 	}
 	else
@@ -565,7 +565,7 @@ half::round (unsigned int n) const
 // Other inline functions
 //-----------------------
 
-inline half	
+inline half
 half::operator - () const
 {
     half h;
@@ -654,7 +654,7 @@ half::operator /= (float f)
 }
 
 
-inline bool	
+inline bool
 half::isFinite () const
 {
     unsigned short e = (_h >> 10) & 0x001f;
@@ -704,7 +704,7 @@ half::isInfinity () const
 }
 
 
-inline bool	
+inline bool
 half::isNegative () const
 {
     return (_h & 0x8000) != 0;
