@@ -45,11 +45,16 @@ static int ArchSnprintf(char *str, size_t size, const char* fmt, ...) {
     return n;
 }
 
+#ifdef __clang__
+#if __has_warning("-Wformat-security")
+#pragma clang diagnostic ignored "-Wformat-security"
+#endif
+#endif
 int main()
 {
     char str[1] = "";
 
-    // ArchSnprintf should report 3 characters not written 
+    // ArchSnprintf should report 3 characters not written
     ARCH_AXIOM(ArchSnprintf(str, strlen(str), "   ") == 3);
 
     // ensure that a string longer than 4096 works
