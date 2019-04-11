@@ -58,11 +58,9 @@ else()
     # Use local boost.
     set(Boost_INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/third_party/boost)
     # --Boost
-    #find_package(Boost
-    #    COMPONENTS
-    #        program_options
-    #    REQUIRED
-    #)
+    find_package(Boost
+        REQUIRED
+    )
 endif()
 
 # --TBB

@@ -82,11 +82,11 @@
 
 include(FindPackageHandleStandardArgs)
 
-if(ANDROID)
-  set(TBB_INCLUDE_DIRS "$ENV{TBBROOT}/include")
-  set(TBB_LIBRARIES "$ENV{TBBROOT}/lib/libtbb.so")
-
-else()
+#if(ANDROID)
+#  set(TBB_INCLUDE_DIRS "$ENV{TBBROOT}/include")
+#  set(TBB_LIBRARIES "$ENV{TBBROOT}/lib/libtbb.so")
+#
+#else()
 if(NOT TBB_FOUND)
 
   ##################################
@@ -230,4 +230,4 @@ if(NOT TBB_FOUND)
   mark_as_advanced(TBB_INCLUDE_DIRS TBB_LIBRARIES)
 
 endif()
-endif(ANDROID)
+#endif(ANDROID)
