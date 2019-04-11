@@ -14,6 +14,9 @@
 # You may obtain a copy of the License at
 # http://www.apache.org/licenses/LICENSE-2.0
 
+if (ANDROID)
+    return()
+endif()
 
 if (WIN32)
     find_path( PTEX_INCLUDE_DIR
@@ -91,7 +94,7 @@ if (PTEX_INCLUDE_DIR AND EXISTS "${PTEX_INCLUDE_DIR}/PtexVersion.h" )
 
     file(STRINGS "${PTEX_INCLUDE_DIR}/PtexVersion.h" TMP REGEX "^#define PtexAPIVersion.*$")
     string(REGEX MATCHALL "[0-9]+" API ${TMP})
-    
+
     file(STRINGS "${PTEX_INCLUDE_DIR}/PtexVersion.h" TMP REGEX "^#define PtexFileMajorVersion.*$")
     string(REGEX MATCHALL "[0-9]+" MAJOR ${TMP})
 
@@ -104,7 +107,7 @@ elseif (PTEX_INCLUDE_DIR AND EXISTS "${PTEX_INCLUDE_DIR}/Ptexture.h" )
 
     file(STRINGS "${PTEX_INCLUDE_DIR}/Ptexture.h" TMP REGEX "^#define PtexAPIVersion.*$")
     string(REGEX MATCHALL "[0-9]+" API ${TMP})
-    
+
     file(STRINGS "${PTEX_INCLUDE_DIR}/Ptexture.h" TMP REGEX "^#define PtexFileMajorVersion.*$")
     string(REGEX MATCHALL "[0-9]+" MAJOR ${TMP})
 

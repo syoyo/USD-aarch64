@@ -55,6 +55,8 @@ if(PXR_ENABLE_PYTHON_SUPPORT)
 else()
     #find_package(PythonInterp 2.7 REQUIRED)
 
+    # Use local boost.
+    set(Boost_INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/third_party/boost)
     # --Boost
     #find_package(Boost
     #    COMPONENTS

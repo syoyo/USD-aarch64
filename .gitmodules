@@ -1,0 +1,6 @@
+[submodule "third_party/OpenSubdiv-aarch64"]
+	path = third_party/OpenSubdiv-aarch64
+	url = https://github.com/syoyo/OpenSubdiv-aarch64
+[submodule "third_party/ptex-aarch64"]
+	path = third_party/ptex-aarch64
+	url = https://github.com/syoyo/ptex-aarch64

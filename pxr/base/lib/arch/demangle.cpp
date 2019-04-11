@@ -47,8 +47,8 @@ PXR_NAMESPACE_OPEN_SCOPE
 static string* _NewDemangledStringTypeName();
 
 /*
- * The define below allows you to run both the old and new mangling schemes, 
- * and compare their results.  When you're satisfied that they always agree, 
+ * The define below allows you to run both the old and new mangling schemes,
+ * and compare their results.  When you're satisfied that they always agree,
  * comment out the define or just rewrite the code.
  *
  * NOTE: I'm commenting out the define, and not just rewriting the code, so
@@ -134,7 +134,7 @@ _DemangleOld(string* mangledTypeName)
         abi::__cxa_demangle(mangledTypeName->c_str(), NULL, NULL, &status))
     {
         *mangledTypeName = string(realName);
-        free(realName);    
+        free(realName);
         _FixupStringNames(mangledTypeName);
         return true;
     }
@@ -146,7 +146,7 @@ _DemangleOld(string* mangledTypeName)
 /*
  * This routine should work for both gcc3.3 library and the "broken" gcc3.4
  * library.  It should also work for gcc4.0 (I think).
- * 
+ *
  * Currently this doesn't do the correct thing with function names, so
  * Arch_DemangleFunctionName has been changed to call _DemangleOld if
  * using a version of gcc >= 3.1.
@@ -174,7 +174,7 @@ _DemangleNewRaw(string* mangledTypeName)
             ok = true;
         }
 
-        free(realName);    
+        free(realName);
     }
 
     return ok;
@@ -206,7 +206,7 @@ ArchDemangle(string* mangledTypeName)
     if (_DemangleNew(mangledTypeName)) {
         if (_DemangleOld(&copy) && copy != *mangledTypeName) {
             fprintf(stderr, "ArchDemangle: disagreement between old and new\n"
-                    "demangling schemes: '%s' (old way) vs '%s' (new way)\n", 
+                    "demangling schemes: '%s' (old way) vs '%s' (new way)\n",
                     copy.c_str(), mangledTypeName->c_str());
         }
 
@@ -234,7 +234,7 @@ Arch_DemangleFunctionName(string* mangledFunctionName)
     if (mangledFunctionName->size() > 2 &&
         (*mangledFunctionName)[0] == '_' && (*mangledFunctionName)[1] == 'Z') {
         // Note: _DemangleNew isn't doing the correct thing with
-        //       function names, use the old codepath. 
+        //       function names, use the old codepath.
         _DemangleOld(mangledFunctionName);
     }
 }

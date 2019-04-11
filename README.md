@@ -10,7 +10,6 @@ Build with cross compilation
 Requirements
 
 * CMake
-* Boost 1.69(no need to compile. Just header files)
 * TBB
 * OpenSubdiv
 * (optional) Ptex( https://github.com/syoyo/ptex-aarch64.git `aarch64` branch )
@@ -41,6 +40,10 @@ Also set Ptex path(optional), then
 ```
 $ ./scripts/bootstrap-aarch64-gcc-cross-linux.sh`
 ```
+
+**NOTE**
+
+boost headers(files only required to compile USD) are copied from 1.69 to `thrird_party/boost` using bcp tool.
 
 Following is the original USD README.
 
