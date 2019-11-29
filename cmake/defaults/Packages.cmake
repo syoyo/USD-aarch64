@@ -158,6 +158,10 @@ if (PXR_BUILD_HOUDINI_PLUGIN)
     find_package(Houdini REQUIRED)
 endif()
 
+if (PXR_BUILD_PRMAN_PLUGIN)
+    find_package(Renderman REQUIRED)
+endif()
+
 if (PXR_BUILD_ALEMBIC_PLUGIN)
     find_package(Alembic REQUIRED)
     find_package(OpenEXR REQUIRED)
@@ -168,6 +172,10 @@ if (PXR_BUILD_ALEMBIC_PLUGIN)
             REQUIRED
         )
     endif()
+endif()
+
+if (PXR_BUILD_DRACO_PLUGIN)
+    find_package(Draco REQUIRED)
 endif()
 
 if (PXR_BUILD_MATERIALX_PLUGIN)

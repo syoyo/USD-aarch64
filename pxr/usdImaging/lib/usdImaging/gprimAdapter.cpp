@@ -23,6 +23,7 @@
 //
 #include "pxr/usdImaging/usdImaging/gprimAdapter.h"
 
+#include "pxr/usdImaging/usdImaging/coordSysAdapter.h"
 #include "pxr/usdImaging/usdImaging/debugCodes.h"
 #include "pxr/usdImaging/usdImaging/delegate.h"
 #include "pxr/usdImaging/usdImaging/indexProxy.h"
@@ -30,10 +31,12 @@
 #include "pxr/usdImaging/usdImaging/tokens.h"
 
 #include "pxr/imaging/hd/perfLog.h"
+#include "pxr/imaging/hd/material.h"
 #include "pxr/imaging/hd/renderDelegate.h"
 #include "pxr/imaging/hd/sceneDelegate.h"
 
 #include "pxr/usd/usdGeom/gprim.h"
+#include "pxr/usd/usdGeom/pointBased.h"
 #include "pxr/usd/usdGeom/primvarsAPI.h"
 
 #include "pxr/usd/usdShade/connectableAPI.h"
@@ -52,19 +55,51 @@ TF_REGISTRY_FUNCTION(TfType)
     // No factory here, GprimAdapter is abstract.
 }
 
+static TfTokenVector
+_CollectMaterialPrimvars(
+    UsdImagingValueCache* valueCache,
+    SdfPath const& materialPath)
+{
+    VtValue vtMaterial;
+    valueCache->FindMaterialResource(materialPath, &vtMaterial);
+
+    TfTokenVector primvars;
+
+    if (vtMaterial.IsHolding<HdMaterialNetworkMap>()) {
+
+        HdMaterialNetworkMap const& networkMap = 
+            vtMaterial.UncheckedGet<HdMaterialNetworkMap>();
+
+        // To simplify the logic so we do not have to pick between different
+        // networks (surface, displacement, volume), we merge all primvars.
+
+        for (auto const& itMap : networkMap.map) {
+            HdMaterialNetwork const& network = itMap.second;
+            primvars.insert(primvars.end(), 
+                network.primvars.begin(), network.primvars.end());
+        }
+    }
+
+    std::sort(primvars.begin(), primvars.end());
+    primvars.erase(std::unique(primvars.begin(), primvars.end()),
+                   primvars.end());
+
+    return primvars;
+}
+
 UsdImagingGprimAdapter::~UsdImagingGprimAdapter() 
 {
 }
 
 /* static */
 SdfPath
-UsdImagingGprimAdapter::_ResolveCachePath(SdfPath const& primPath,
+UsdImagingGprimAdapter::_ResolveCachePath(SdfPath const& usdPath,
                                           UsdImagingInstancerContext const*
                                               instancerContext)
 {
-    SdfPath cachePath = primPath;
+    SdfPath cachePath = usdPath;
 
-    // For non-instanced prims, cachePath and primPath will be the same, however
+    // For non-instanced prims, cachePath and usdPath will be the same, however
     // for instanced prims, cachePath will be something like:
     //
     // primPath: /__Master_1/cube
@@ -74,7 +109,7 @@ UsdImagingGprimAdapter::_ResolveCachePath(SdfPath const& primPath,
     // same underlying UsdPrim.
 
     if (instancerContext != nullptr) {
-        SdfPath const& instancer = instancerContext->instancerId;
+        SdfPath const& instancer = instancerContext->instancerCachePath;
         TfToken const& childName = instancerContext->childName;
 
         if (!instancer.IsEmpty()) {
@@ -87,30 +122,42 @@ UsdImagingGprimAdapter::_ResolveCachePath(SdfPath const& primPath,
     return cachePath;
 }
 
-/* static */
 SdfPath
 UsdImagingGprimAdapter::_AddRprim(TfToken const& primType,
                                   UsdPrim const& usdPrim,
                                   UsdImagingIndexProxy* index,
-                                  SdfPath const& materialId,
+                                  SdfPath const& materialUsdPath,
                                   UsdImagingInstancerContext const*
                                       instancerContext)
 {
     SdfPath cachePath = _ResolveCachePath(usdPrim.GetPath(), instancerContext);
     SdfPath instancer = instancerContext ?
-        instancerContext->instancerId : SdfPath();
-    UsdPrim cachePrim = usdPrim.GetStage()->GetPrimAtPath(
+        instancerContext->instancerCachePath : SdfPath();
+
+    // For an instanced gprim, this is the instancer prim.
+    // For a non-instanced gprim, this is just the gprim.
+    UsdPrim proxyPrim = usdPrim.GetStage()->GetPrimAtPath(
         cachePath.GetAbsoluteRootOrPrimPath());
 
-    index->InsertRprim(primType, cachePath, instancer, cachePrim,
+    index->InsertRprim(primType, cachePath, instancer, proxyPrim,
         instancerContext ? instancerContext->instancerAdapter
             : UsdImagingPrimAdapterSharedPtr());
     HD_PERF_COUNTER_INCR(UsdImagingTokens->usdPopulatedPrimCount);
 
-    // Populate shaders by reference from rprims.
-    SdfPath materialPath = instancerContext ?
-        instancerContext->instanceMaterialId : materialId;
-    UsdPrim materialPrim = usdPrim.GetStage()->GetPrimAtPath(materialPath);
+    // As long as we're passing the proxyPrim in here, we need to add a
+    // manual dependency on usdPrim so that usd editing works correctly;
+    // also, get rid of the proxyPrim dependency.
+    // XXX: We should get rid of proxyPrim entirely.
+    if (instancerContext != nullptr) {
+        index->_RemovePrimInfoDependency(cachePath);
+        index->AddDependency(cachePath, usdPrim);
+    }
+
+    // Allow instancer context to override the material binding.
+    SdfPath resolvedUsdMaterialPath = instancerContext ?
+        instancerContext->instancerMaterialUsdPath : materialUsdPath;
+    UsdPrim materialPrim =
+        usdPrim.GetStage()->GetPrimAtPath(resolvedUsdMaterialPath);
 
     if (materialPrim) {
         if (materialPrim.IsA<UsdShadeMaterial>()) {
@@ -118,12 +165,25 @@ UsdImagingGprimAdapter::_AddRprim(TfToken const& primType,
                 index->GetMaterialAdapter(materialPrim);
             if (materialAdapter) {
                 materialAdapter->Populate(materialPrim, index, nullptr);
+                // We need to register a dependency on the material prim so
+                // that geometry is updated when the material is
+                // (specifically, DirtyMaterialId).
+                // XXX: Eventually, it would be great to push this into hydra.
+                index->AddDependency(cachePath, materialPrim);
             }
         } else {
             TF_WARN("Gprim <%s> has illegal material reference to "
                     "prim <%s> of type (%s)", usdPrim.GetPath().GetText(),
                     materialPrim.GetPath().GetText(),
                     materialPrim.GetTypeName().GetText());
+        }
+    }
+
+    // Populate coordinate system sprims bound to rprims.
+    if (_DoesDelegateSupportCoordSys()) {
+        if (UsdImagingPrimAdapterSharedPtr coordSysAdapter =
+            _GetAdapter(HdPrimTypeTokens->coordSys)) {
+            coordSysAdapter->Populate(usdPrim, index, instancerContext);
         }
     }
 
@@ -143,20 +203,25 @@ UsdImagingGprimAdapter::TrackVariability(UsdPrim const& prim,
     
     UsdImagingValueCache* valueCache = _GetValueCache();
 
-    if (!_IsVarying(prim,
-               UsdGeomTokens->primvarsDisplayColor,
-               HdChangeTracker::DirtyPrimvar,
-               UsdImagingTokens->usdVaryingPrimvar,
-               timeVaryingBits,
-               false)) {
-        // Only do this second check if the displayColor isn't already known
-        // to be varying.
-        _IsVarying(prim,
-               UsdGeomTokens->primvarsDisplayOpacity,
-               HdChangeTracker::DirtyPrimvar,
-               UsdImagingTokens->usdVaryingPrimvar,
-               timeVaryingBits,
-               false);
+    // See if any of the inherited primvars are time-dependent.
+    UsdImaging_InheritedPrimvarStrategy::value_type inheritedPrimvarRecord =
+        _GetInheritedPrimvars(prim.GetParent());
+    if (inheritedPrimvarRecord && inheritedPrimvarRecord->variable) {
+        *timeVaryingBits |= HdChangeTracker::DirtyPrimvar;
+        HD_PERF_COUNTER_INCR(UsdImagingTokens->usdVaryingPrimvar);
+    }
+    if (!(*timeVaryingBits & HdChangeTracker::DirtyPrimvar)) {
+        // See if any local primvars are time-dependent.
+        UsdGeomPrimvarsAPI primvarsAPI(prim);
+        std::vector<UsdGeomPrimvar> primvars =
+            primvarsAPI.GetPrimvarsWithValues();
+        for (UsdGeomPrimvar const& pv : primvars) {
+            if (pv.ValueMightBeTimeVarying()) {
+                *timeVaryingBits |= HdChangeTracker::DirtyPrimvar;
+                HD_PERF_COUNTER_INCR(UsdImagingTokens->usdVaryingPrimvar);
+                break;
+            }
+        }
     }
 
     // Discover time-varying extent.
@@ -223,18 +288,51 @@ UsdImagingGprimAdapter::UpdateForTime(UsdPrim const& prim,
             HdTokens->points,
             HdInterpolationVertex,
             HdPrimvarRoleTokens->point);
+
+        // Velocity information is expected to be authored at the same sample
+        // rate as points data, so use the points dirty bit to let us know when
+        // to publish velocities.
+        UsdGeomPointBased pointBased(prim);
+        VtVec3fArray velocities;
+        if (pointBased.GetVelocitiesAttr() &&
+            pointBased.GetVelocitiesAttr().Get(&velocities, time)) {
+            // Expose velocities as a primvar.
+            _MergePrimvar(
+                &primvars,
+                HdTokens->velocities,
+                HdInterpolationVertex,
+                HdPrimvarRoleTokens->vector);
+            valueCache->GetPrimvar(cachePath, HdTokens->velocities) = 
+                VtValue(velocities);
+        }
+
+        // Acceleration information is expected to be authored at the same sample
+        // rate as points data, so use the points dirty bit to let us know when
+        // to publish accelerations.
+        VtVec3fArray accelerations;
+        if (pointBased.GetAccelerationsAttr() &&
+            pointBased.GetAccelerationsAttr().Get(&accelerations, time)) {
+            // Expose accelerations as a primvar.
+            _MergePrimvar(
+                &primvars,
+                HdTokens->accelerations,
+                HdInterpolationVertex,
+                HdPrimvarRoleTokens->vector);
+            valueCache->GetPrimvar(cachePath, HdTokens->accelerations) = 
+                VtValue(accelerations);
+        }
     }
 
-    SdfPath usdMaterialPath;
+    SdfPath materialUsdPath;
     if (requestedBits & (HdChangeTracker::DirtyPrimvar |
                          HdChangeTracker::DirtyMaterialId)) {
-        usdMaterialPath = GetMaterialId(prim);
+        materialUsdPath = GetMaterialUsdPath(prim);
 
         // If we're processing this gprim on behalf of an instancer,
         // use the material binding specified by the instancer if we
         // aren't able to find a material binding for this prim itself.
-        if (instancerContext && usdMaterialPath.IsEmpty()) {
-            usdMaterialPath = instancerContext->instanceMaterialId;
+        if (instancerContext && materialUsdPath.IsEmpty()) {
+            materialUsdPath = instancerContext->instancerMaterialUsdPath;
         }
     }
 
@@ -242,6 +340,9 @@ UsdImagingGprimAdapter::UpdateForTime(UsdPrim const& prim,
         // XXX: need to validate gprim schema
         UsdGeomGprim gprim(prim);
 
+        // Handle color/opacity specially, since they can be shadowed by
+        // material parameters.  If we don't find them, check inherited
+        // primvars.
         TfToken colorInterp;
         VtValue color;
         if (GetColor(prim, time, &colorInterp, &color)) {
@@ -251,6 +352,12 @@ UsdImagingGprimAdapter::UpdateForTime(UsdPrim const& prim,
                 HdTokens->displayColor,
                 _UsdToHdInterpolation(colorInterp),
                 HdPrimvarRoleTokens->color);
+        } else {
+            UsdGeomPrimvar pv =
+                _GetInheritedPrimvar(prim, HdTokens->displayColor);
+            if (pv) {
+                _ComputeAndMergePrimvar(prim, cachePath, pv, time, valueCache);
+            }
         }
 
         TfToken opacityInterp;
@@ -261,49 +368,45 @@ UsdImagingGprimAdapter::UpdateForTime(UsdPrim const& prim,
                 &primvars,
                 HdTokens->displayOpacity,
                 _UsdToHdInterpolation(opacityInterp));
+        } else {
+            UsdGeomPrimvar pv =
+                _GetInheritedPrimvar(prim, HdTokens->displayOpacity);
+            if (pv) {
+                _ComputeAndMergePrimvar(prim, cachePath, pv, time, valueCache);
+            }
         }
 
-        if (_GetMaterialBindingPurpose() == HdTokens->full) {
-            // XXX:HACK: Currently GetMaterialPrimvars() does not return
-            // correct results, so in the meantime let's just ask USD
-            // for the list of primvars.  The inherited primvars from parent
-            // should really be cached and shared...
-            
-            // All primvars returned by plural Find* methods have already
-            // been verified to have some authored value
-            UsdGeomPrimvarsAPI primvars(prim);
-            for (auto const &pv: primvars.FindPrimvarsWithInheritance()) {
-                if (_IsBuiltinPrimvar(pv.GetPrimvarName())) {
-                    continue;
-                }
-                _ComputeAndMergePrimvar(
-                    prim, cachePath, pv, time, valueCache);
-            }
-        } else {
+        // Compile a list of primvars to check.
+        std::vector<UsdGeomPrimvar> primvars;
+        UsdImaging_InheritedPrimvarStrategy::value_type inheritedPrimvarRecord =
+            _GetInheritedPrimvars(prim.GetParent());
+        if (inheritedPrimvarRecord) {
+            primvars = inheritedPrimvarRecord->primvars;
+        }
+        UsdGeomPrimvarsAPI primvarsAPI(prim);
+        std::vector<UsdGeomPrimvar> local = primvarsAPI.GetPrimvarsWithValues();
+        primvars.insert(primvars.end(), local.begin(), local.end());
 
-            if (!usdMaterialPath.IsEmpty()) {
-                // Obtain the primvars used in the material bound to this prim
-                // and check if they are in this prim, if so, add them to the 
-                // primvars descriptions.
-                TfTokenVector matPrimvarNames;
-                valueCache->FindMaterialPrimvars(usdMaterialPath, 
-                                                 &matPrimvarNames);
+        // Some backends may not want to load all primvars due to memory limits.
+        // We filter the list of primvars based on what the material needs.
+        TfTokenVector matPrimvarNames;
+        if (_IsPrimvarFilteringNeeded() && !materialUsdPath.IsEmpty()) {
+                matPrimvarNames = _CollectMaterialPrimvars(
+                    valueCache, materialUsdPath);
+        }
 
-                UsdGeomPrimvarsAPI primvars(gprim);
-                for (auto const &pvName : matPrimvarNames) {
-                    if (_IsBuiltinPrimvar(pvName)) {
-                        continue;
-                    }
-                    // XXX If we can cache inheritable primvars at each 
-                    // non-leaf prim, then we can use the overload that keeps
-                    // us from needing to search up ancestors.
-                    UsdGeomPrimvar pv = primvars.FindPrimvarWithInheritance(pvName);
-                    if (pv.HasValue()) {
-                        _ComputeAndMergePrimvar(
-                            prim, cachePath, pv, time, valueCache);
-                    }
-                }
+        for (auto const &pv : primvars) {
+            if (_IsBuiltinPrimvar(pv.GetPrimvarName())) {
+                continue;
             }
+            if (_IsPrimvarFilteringNeeded() &&
+                std::find(matPrimvarNames.begin(),
+                          matPrimvarNames.end(),
+                          pv.GetPrimvarName()) == matPrimvarNames.end()) {
+                continue;
+            }
+
+            _ComputeAndMergePrimvar(prim, cachePath, pv, time, valueCache);
         }
     }
 
@@ -324,10 +427,13 @@ UsdImagingGprimAdapter::UpdateForTime(UsdPrim const& prim,
     }
 
     if (requestedBits & HdChangeTracker::DirtyMaterialId){
-        valueCache->GetMaterialId(cachePath) = usdMaterialPath;
+        // Although the material binding cache generally holds
+        // cachePaths, not usdPaths, we can use the usdPath
+        // directly here since we do not instance sprims.
+        valueCache->GetMaterialId(cachePath) = materialUsdPath;
 
         TF_DEBUG(USDIMAGING_SHADERS).Msg("Shader for <%s> is <%s>\n",
-                prim.GetPath().GetText(), usdMaterialPath.GetText());
+                prim.GetPath().GetText(), materialUsdPath.GetText());
 
     }
 }
@@ -396,6 +502,14 @@ UsdImagingGprimAdapter::MarkCullStyleDirty(UsdPrim const& prim,
 }
 
 void
+UsdImagingGprimAdapter::MarkRenderTagDirty(UsdPrim const& prim,
+                                           SdfPath const& cachePath,
+                                           UsdImagingIndexProxy* index)
+{
+    index->MarkRprimDirty(cachePath, HdChangeTracker::DirtyRenderTag);
+}
+
+void
 UsdImagingGprimAdapter::MarkTransformDirty(UsdPrim const& prim,
                                            SdfPath const& cachePath,
                                            UsdImagingIndexProxy* index)
@@ -451,13 +565,15 @@ UsdImagingGprimAdapter::_GetExtent(UsdPrim const& prim, UsdTimeCode time) const
     HF_MALLOC_TAG_FUNCTION();
     UsdGeomGprim gprim(prim);
     VtVec3fArray extent;
-    if (gprim.GetExtentAttr().Get(&extent, time)) {
+    if (gprim.GetExtentAttr().Get(&extent, time) && extent.size() == 2) {
         // Note:
         // Usd stores extent as 2 float vecs. We do an implicit 
         // conversion to doubles
         return GfRange3d(extent[0], extent[1]);
     } else {
-        // Return empty range if no value was found.
+        // Return empty range if no value was found, or the wrong number of 
+        // extent values were provided.        
+        // Note: The default empty is [FLT_MAX,-FLT_MAX].
         // TODO: Should this compute the extent based on the points instead?
         return GfRange3d();
     }
@@ -614,6 +730,22 @@ UsdImagingGprimAdapter::GetOpacity(UsdPrim const& prim,
         *opacity = VtValue(result);
     }
     return true;
+}
+
+UsdGeomPrimvar
+UsdImagingGprimAdapter::_GetInheritedPrimvar(UsdPrim const& prim,
+                                             TfToken const& primvarName) const
+{
+    UsdImaging_InheritedPrimvarStrategy::value_type inheritedPrimvarRecord =
+        _GetInheritedPrimvars(prim.GetParent());
+    if (inheritedPrimvarRecord) {
+        for (UsdGeomPrimvar const& pv : inheritedPrimvarRecord->primvars) {
+            if (pv.GetPrimvarName() == primvarName) {
+                return pv;
+            }
+        }
+    }
+    return UsdGeomPrimvar();
 }
 
 bool 

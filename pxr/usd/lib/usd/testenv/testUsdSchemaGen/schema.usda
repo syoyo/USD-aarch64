@@ -92,11 +92,27 @@ class "PublicMultipleApplyAPI" (
 class "Base" (
     inherits = </Typed>
     doc = "This doc should only exist on the \"Base\" class."
+    customData = {
+        dictionary schemaTokens = {
+            dictionary schemaToken1 = {}
+            dictionary schemaToken2 = {
+                string value = "/non-identifier-tokenValue!"
+                string doc = """schemaToken2 doc"""
+            }
+        }
+    }
 ) {
     
     token myVaryingToken = "VariableTokenDefault" (
-        allowedTokens = ["VariableTokenAllowed1", "VariabletokenAllowed2"]
+        allowedTokens = ["VariableTokenAllowed1", "VariableTokenAllowed2", ""]
         doc = "VariableToken attribute docs.")
+    
+    uniform token[] myVaryingTokenArray = ["VariableTokenArrayAllowed1", ""] (
+        allowedTokens = [
+            "VariableTokenArrayAllowed1",
+            "VariableTokenArrayAllowed2",
+            ""]
+        doc = "VariableTokenArray attribute docs.")
     
     uniform bool myUniformBool = false (
         doc = "Uniform bool, default false")

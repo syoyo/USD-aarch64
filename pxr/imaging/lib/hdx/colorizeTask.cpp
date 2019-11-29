@@ -32,8 +32,11 @@ PXR_NAMESPACE_OPEN_SCOPE
 HdxColorizeTask::HdxColorizeTask(HdSceneDelegate* delegate, SdfPath const& id)
  : HdxProgressiveTask(id)
  , _aovName()
- , _renderBufferId()
- , _renderBuffer(nullptr)
+ , _aovBufferPath()
+ , _depthBufferPath()
+ , _applyColorQuantization(true)
+ , _aovBuffer(nullptr)
+ , _depthBuffer(nullptr)
  , _outputBuffer(nullptr)
  , _outputBufferSize(0)
  , _converged(false)
@@ -44,6 +47,7 @@ HdxColorizeTask::HdxColorizeTask(HdSceneDelegate* delegate, SdfPath const& id)
 
 HdxColorizeTask::~HdxColorizeTask()
 {
+    delete[] _outputBuffer;
 }
 
 bool
@@ -54,17 +58,14 @@ HdxColorizeTask::IsConverged() const
 
 struct _Colorizer {
     typedef void (*ColorizerCallback)
-        (uint8_t* dest, uint8_t* src, size_t nPixels);
+        (uint8_t* dest, uint8_t* src, size_t nPixels, uint32_t imageWidth);
     TfToken aovName;
     HdFormat aovFormat;
     ColorizerCallback callback;
 };
 
-static void _colorizeColor(uint8_t* dest, uint8_t* src, size_t nPixels)
-{
-    memcpy(dest, src, nPixels*4);
-}
-static void _colorizeNdcDepth(uint8_t* dest, uint8_t* src, size_t nPixels)
+static void _colorizeNdcDepth(
+    uint8_t* dest, uint8_t* src, size_t nPixels, uint32_t imageWidth)
 {
     // depth is in clip space, so remap (-1, 1) to (0,1) and clamp.
     float *depthBuffer = reinterpret_cast<float*>(src);
@@ -82,7 +83,8 @@ static void _colorizeNdcDepth(uint8_t* dest, uint8_t* src, size_t nPixels)
         dest[i*4+3] = 255;
     }
 }
-static void _colorizeLinearDepth(uint8_t* dest, uint8_t* src, size_t nPixels)
+static void _colorizeLinearDepth(
+    uint8_t* dest, uint8_t* src, size_t nPixels, uint32_t imageWidth)
 {
     // linearDepth is depth from the camera, in world units. Its range is
     // [0, N] for some maximum N; to display it, rescale to [0, 1] and
@@ -105,7 +107,8 @@ static void _colorizeLinearDepth(uint8_t* dest, uint8_t* src, size_t nPixels)
         }
     }
 }
-static void _colorizeNormal(uint8_t* dest, uint8_t* src, size_t nPixels)
+static void _colorizeNormal(
+    uint8_t* dest, uint8_t* src, size_t nPixels, uint32_t imageWidth)
 {
     float *normalBuffer = reinterpret_cast<float*>(src);
     for (size_t i = 0; i < nPixels; ++i) {
@@ -118,7 +121,8 @@ static void _colorizeNormal(uint8_t* dest, uint8_t* src, size_t nPixels)
         dest[i*4+3] = 255;
     }
 }
-static void _colorizeId(uint8_t* dest, uint8_t* src, size_t nPixels)
+static void _colorizeId(
+    uint8_t* dest, uint8_t* src, size_t nPixels, uint32_t imageWidth)
 {
     // XXX: this is legacy ID-display behavior, but an alternative is to
     // hash the ID to 3 bytes and use those as color. Even fancier,
@@ -132,7 +136,8 @@ static void _colorizeId(uint8_t* dest, uint8_t* src, size_t nPixels)
         dest[i*4+3] = 255;
     }
 }
-static void _colorizePrimvar(uint8_t* dest, uint8_t* src, size_t nPixels)
+static void _colorizePrimvar(
+    uint8_t* dest, uint8_t* src, size_t nPixels, uint32_t imageWidth)
 {
     float *primvarBuffer = reinterpret_cast<float*>(src);
     for (size_t i = 0; i < nPixels; ++i) {
@@ -149,10 +154,210 @@ static void _colorizePrimvar(uint8_t* dest, uint8_t* src, size_t nPixels)
     }
 }
 
+// Prman linear to display
+static float DspyLinearTosRGB(float u)
+{
+    return u < 0.0031308f ? 12.92f * u : 1.055f * powf(u, 0.4167f) - 0.055f;
+}
+
+// Prman DspyQuantize
+static int DspyQuantize(
+    float value, int x, int y, int k, int min, int max, int dither)
+{
+    float const s_order[8][8] = {
+        {
+            -0.49219f,
+            0.00781f,
+            -0.36719f,
+            0.13281f,
+            -0.46094f,
+            0.03906f,
+            -0.33594f,
+            0.16406f,
+        },
+        {
+            0.25781f,
+            -0.24219f,
+            0.38281f,
+            -0.11719f,
+            0.28906f,
+            -0.21094f,
+            0.41406f,
+            -0.08594f,
+        },
+        {
+            -0.30469f,
+            0.19531f,
+            -0.42969f,
+            0.07031f,
+            -0.27344f,
+            0.22656f,
+            -0.39844f,
+            0.10156f,
+        },
+        {
+            0.44531f,
+            -0.05469f,
+            0.32031f,
+            -0.17969f,
+            0.47656f,
+            -0.02344f,
+            0.35156f,
+            -0.14844f,
+        },
+        {
+            -0.44531f,
+            0.05469f,
+            -0.32031f,
+            0.17969f,
+            -0.47656f,
+            0.02344f,
+            -0.35156f,
+            0.14844f,
+        },
+        {
+            0.30469f,
+            -0.19531f,
+            0.42969f,
+            -0.07031f,
+            0.27344f,
+            -0.22656f,
+            0.39844f,
+            -0.10156f,
+        },
+        {
+            -0.25781f,
+            0.24219f,
+            -0.38281f,
+            0.11719f,
+            -0.28906f,
+            0.21094f,
+            -0.41406f,
+            0.08594f,
+        },
+        {
+            0.49219f,
+            -0.00781f,
+            0.36719f,
+            -0.13281f,
+            0.46094f,
+            -0.03906f,
+            0.33594f,
+            -0.16406f,
+        },
+    };
+    int dx, dy;
+    switch (k & 3)
+    {
+    case 0:
+        dx = x & 7;
+        dy = y & 7;
+        break;
+    case 1:
+        dx = 7 - (y & 7);
+        dy = x & 7;
+        break;
+    case 2:
+        dx = 7 - (x & 7);
+        dy = 7 - (y & 7);
+        break;
+    case 3:
+        dx = y & 7;
+        dy = 7 - (x & 7);
+        break;
+    }  // (k & 3)
+
+    value *= max - min;
+    if (dither) value += s_order[dy][dx] + 0.49999f;
+    int result = min + (int)floorf(value);
+    result = min > result ? min : result;
+    result = max < result ? max : result;
+    return result;
+}
+
+static void _float32ToDisplay(
+    uint8_t* dest, 
+    uint8_t* src, 
+    size_t nPixels,
+    uint32_t imageWidth)
+{
+    float *colorBuffer = reinterpret_cast<float*>(src);
+    for (size_t i = 0; i < nPixels; ++i) {
+        GfVec4f n(colorBuffer[i*4+0], colorBuffer[i*4+1],
+                  colorBuffer[i*4+2], colorBuffer[i*4+3]);
+
+        int x = i % imageWidth;
+        int y = i / imageWidth;
+
+        dest[i*4+0] = DspyQuantize(
+            DspyLinearTosRGB(n[0]), x, y, 0, 0, UINT8_MAX, true);
+        dest[i*4+1] = DspyQuantize(
+            DspyLinearTosRGB(n[1]), x, y, 1, 0, UINT8_MAX, true);
+        dest[i*4+2] = DspyQuantize(
+            DspyLinearTosRGB(n[2]), x, y, 2, 0, UINT8_MAX, true);
+
+        dest[i*4+3] = (uint8_t)(n[3] * 255.0f);
+    }
+}
+
+static void _float16ToDisplay(
+    uint8_t* dest, 
+    uint8_t* src, 
+    size_t nPixels,
+    uint32_t imageWidth)
+{
+    GfHalf *colorBuffer = reinterpret_cast<GfHalf*>(src);
+    for (size_t i = 0; i < nPixels; ++i) {
+        GfVec4f n(colorBuffer[i*4+0], colorBuffer[i*4+1],
+                  colorBuffer[i*4+2], colorBuffer[i*4+3]);
+
+        int x = i % imageWidth;
+        int y = i / imageWidth;
+
+        dest[i*4+0] = DspyQuantize(
+            DspyLinearTosRGB(n[0]), x, y, 0, 0, UINT8_MAX, true);
+        dest[i*4+1] = DspyQuantize(
+            DspyLinearTosRGB(n[1]), x, y, 1, 0, UINT8_MAX, true);
+        dest[i*4+2] = DspyQuantize(
+            DspyLinearTosRGB(n[2]), x, y, 2, 0, UINT8_MAX, true);
+
+        dest[i*4+3] = (uint8_t)(n[3] * 255.0f);
+    }
+}
+
+static void _uint8ToDisplay(
+    uint8_t* dest, 
+    uint8_t* src, 
+    size_t nPixels,
+    uint32_t imageWidth)
+{
+    uint8_t *colorBuffer = reinterpret_cast<uint8_t*>(src);
+    for (size_t i = 0; i < nPixels; ++i) {
+        GfVec4f n(colorBuffer[i*4+0] / 255.0f, 
+                  colorBuffer[i*4+1] / 255.0f,
+                  colorBuffer[i*4+2] / 255.0f, 
+                  colorBuffer[i*4+3] / 255.0f);
+
+        int x = i % imageWidth;
+        int y = i / imageWidth;
+
+        dest[i*4+0] = DspyQuantize(
+            DspyLinearTosRGB(n[0]), x, y, 0, 0, UINT8_MAX, true);
+        dest[i*4+1] = DspyQuantize(
+            DspyLinearTosRGB(n[1]), x, y, 1, 0, UINT8_MAX, true);
+        dest[i*4+2] = DspyQuantize(
+            DspyLinearTosRGB(n[2]), x, y, 2, 0, UINT8_MAX, true);
+
+        dest[i*4+3] = (uint8_t)(n[3] * 255.0f);
+    }
+}
+
 // XXX: It would be nice to make the colorizers more flexible on input format,
 // but this gets the job done.
 static _Colorizer _colorizerTable[] = {
-    { HdAovTokens->color, HdFormatUNorm8Vec4, _colorizeColor },
+    { HdAovTokens->color, HdFormatUNorm8Vec4, _uint8ToDisplay },
+    { HdAovTokens->color, HdFormatFloat16Vec4, _float16ToDisplay },
+    { HdAovTokens->color, HdFormatFloat32Vec4, _float32ToDisplay },
     { HdAovTokens->depth, HdFormatFloat32, _colorizeNdcDepth },
     { HdAovTokens->linearDepth, HdFormatFloat32, _colorizeLinearDepth },
     { HdAovTokens->Neye, HdFormatFloat32Vec3, _colorizeNormal },
@@ -175,7 +380,9 @@ HdxColorizeTask::Sync(HdSceneDelegate* delegate,
 
         if (_GetTaskParams(delegate, &params)) {
             _aovName = params.aovName;
-            _renderBufferId = params.renderBuffer;
+            _aovBufferPath = params.aovBufferPath;
+            _depthBufferPath = params.depthBufferPath;
+            _applyColorQuantization = params.applyColorQuantization;
             _needsValidation = true;
         }
     }
@@ -185,41 +392,56 @@ HdxColorizeTask::Sync(HdSceneDelegate* delegate,
 void
 HdxColorizeTask::Prepare(HdTaskContext* ctx, HdRenderIndex *renderIndex)
 {
-    // An empty _renderBufferId disables the task
-    if (_renderBufferId.IsEmpty()) {
-        _renderBuffer = nullptr;
+    _aovBuffer = nullptr;
+    _depthBuffer = nullptr;
+
+    // An empty _aovBufferPath disables the task
+    if (_aovBufferPath.IsEmpty()) {
         return;
     }
 
-    _renderBuffer = static_cast<HdRenderBuffer*>(
-        renderIndex->GetBprim(HdPrimTypeTokens->renderBuffer, _renderBufferId));
+    _aovBuffer = static_cast<HdRenderBuffer*>(
+        renderIndex->GetBprim(HdPrimTypeTokens->renderBuffer, _aovBufferPath));
 
-    if (!TF_VERIFY(_renderBuffer)) {
+    if (!_aovBuffer) {
+        if (_needsValidation) {
+            TF_WARN("Bad AOV input buffer path %s", _aovBufferPath.GetText());
+            _needsValidation = false;
+        }
         return;
     }
 
+    if (!_depthBufferPath.IsEmpty()) {
+        _depthBuffer = static_cast<HdRenderBuffer*>(
+            renderIndex->GetBprim(
+                HdPrimTypeTokens->renderBuffer, _depthBufferPath));
+        if (!_depthBuffer && _needsValidation) {
+            TF_WARN("Bad depth input buffer path %s",
+                    _depthBufferPath.GetText());
+        }
+    }
 
     if (_needsValidation) {
-        bool match = false;
+        _needsValidation = false;
+
+        if (_aovName == HdAovTokens->color &&
+            _aovBuffer->GetFormat() == HdFormatUNorm8Vec4) {
+            return;
+        }
         for (auto& colorizer : _colorizerTable) {
             if (_aovName == colorizer.aovName &&
-                _renderBuffer->GetFormat() == colorizer.aovFormat) {
-                match = true;
-                break;
+                _aovBuffer->GetFormat() == colorizer.aovFormat) {
+                return;
             }
         }
         if (HdParsedAovToken(_aovName).isPrimvar &&
-            _renderBuffer->GetFormat() == HdFormatFloat32Vec3) {
-            match = true;
+            _aovBuffer->GetFormat() == HdFormatFloat32Vec3) {
+            return;
         }
-        if (!match) {
-            TF_WARN("Unsupported AOV input %s with format %s",
+        TF_WARN("Unsupported AOV input %s with format %s",
                 _aovName.GetText(),
-                TfEnum::GetName(_renderBuffer->GetFormat()).c_str());
-        }
-        _needsValidation = false;
+                TfEnum::GetName(_aovBuffer->GetFormat()).c_str());
     }
-
 }
 
 void
@@ -228,26 +450,40 @@ HdxColorizeTask::Execute(HdTaskContext* ctx)
     HD_TRACE_FUNCTION();
     HF_MALLOC_TAG_FUNCTION();
 
-    // _renderBuffer is null if the task is disabled
-    // because _renderBufferId is empty or
+    // _aovBuffer is null if the task is disabled
+    // because _aovBufferPath is empty or
     // we failed to look up the renderBuffer in the render index,
     // in which case the error was previously reported
-    if (!_renderBuffer) {
+    if (!_aovBuffer) {
+        // If there is no aov buffer to colorize, then this task is never
+        // going to do anything, and so should immediately be marked as
+        // converged.
+        _converged = true;
         return;
     }
 
-    // Resolve the renderbuffer before we read it.
-    _renderBuffer->Resolve();
-
     // Allocate the scratch space, if needed.
-    size_t sz = _renderBuffer->GetWidth() * _renderBuffer->GetHeight();
-    if (!_outputBuffer || _outputBufferSize != sz) {
-        delete[] _outputBuffer;
-        _outputBuffer = new uint8_t[sz*4];
-        _outputBufferSize = sz;
+    size_t size = _aovBuffer->GetWidth() * _aovBuffer->GetHeight();
+    if (!_applyColorQuantization && _aovName == HdAovTokens->color) {
+        size = 0;
     }
 
-    _converged = _renderBuffer->IsConverged();
+    if (_outputBufferSize != size) {
+        delete[] _outputBuffer;
+        _outputBuffer = (size != 0) ? (new uint8_t[size*4]) : nullptr;
+        _outputBufferSize = size;
+    }
+
+    _converged = _aovBuffer->IsConverged();
+    if (_depthBuffer) {
+        _converged = _converged && _depthBuffer->IsConverged();
+    }
+
+    // Resolve the buffers before we read them.
+    _aovBuffer->Resolve();
+    if (_depthBuffer) {
+        _depthBuffer->Resolve();
+    }
 
     // XXX: Right now, we colorize on the CPU, before uploading data to the
     // fullscreen pass.  It would be much better if the colorizer callbacks
@@ -255,28 +491,77 @@ HdxColorizeTask::Execute(HdTaskContext* ctx)
     // backends that keep renderbuffers on the GPU.
 
     // Colorize!
-    for (auto& colorizer : _colorizerTable) {
-        if (_aovName == colorizer.aovName &&
-            _renderBuffer->GetFormat() == colorizer.aovFormat) {
-            colorizer.callback(_outputBuffer, _renderBuffer->Map(),
-                               _outputBufferSize);
-            _renderBuffer->Unmap();
-            break;
-        }
+
+    if (_depthBuffer && _depthBuffer->GetFormat() == HdFormatFloat32) {
+        uint8_t* db = reinterpret_cast<uint8_t*>(_depthBuffer->Map());
+        _compositor.UpdateDepth(_depthBuffer->GetWidth(),
+                                _depthBuffer->GetHeight(),
+                                db);
+        _depthBuffer->Unmap();
+    } else {
+        // If no depth buffer is bound, don't draw with depth.
+        _compositor.UpdateDepth(0, 0, nullptr);
     }
-    // (special handling for primvar tokens).
-    if (HdParsedAovToken(_aovName).isPrimvar &&
-        _renderBuffer->GetFormat() == HdFormatFloat32Vec3) {
-        _colorizePrimvar(_outputBuffer, _renderBuffer->Map(),
-                         _outputBufferSize);
-        _renderBuffer->Unmap();
+
+    if (!_applyColorQuantization && _aovName == HdAovTokens->color) {
+        // Special handling for color: to avoid a copy, just read the data
+        // from the render buffer if no quantization is requested.
+        _compositor.UpdateColor(_aovBuffer->GetWidth(),
+                                _aovBuffer->GetHeight(),
+                                _aovBuffer->GetFormat(),
+                                _aovBuffer->Map());
+        _aovBuffer->Unmap();
+    } else {
+
+        // Otherwise, colorize into the scratch buffer.
+        bool colorized = false;
+
+        // Check the colorizer callbacks.
+        for (auto& colorizer : _colorizerTable) {
+            if (_aovName == colorizer.aovName &&
+                _aovBuffer->GetFormat() == colorizer.aovFormat) {
+                uint32_t width = _aovBuffer->GetWidth();
+                uint8_t* ab = reinterpret_cast<uint8_t*>(_aovBuffer->Map());
+                colorizer.callback(_outputBuffer, ab, _outputBufferSize, width);
+                _aovBuffer->Unmap();
+                colorized = true;
+                break;
+            }
+        }
+
+        // Special handling for primvar tokens: they all go through the same
+        // function...
+        if (!colorized && HdParsedAovToken(_aovName).isPrimvar &&
+            _aovBuffer->GetFormat() == HdFormatFloat32Vec3) {
+            uint32_t width = _aovBuffer->GetWidth();
+            uint8_t* ab = reinterpret_cast<uint8_t*>(_aovBuffer->Map());
+            _colorizePrimvar(_outputBuffer, ab, _outputBufferSize, width);
+            _aovBuffer->Unmap();
+            colorized = true;
+        }
+
+        // Upload the scratch buffer.
+        if (colorized) {
+            _compositor.UpdateColor(_aovBuffer->GetWidth(),
+                                    _aovBuffer->GetHeight(),
+                                    HdFormatUNorm8Vec4,
+                                    _outputBuffer);
+        } else {
+            _compositor.UpdateColor(0, 0, HdFormatInvalid, nullptr);
+        }
     }
 
     // Blit!
-    _compositor.UpdateColor(_renderBuffer->GetWidth(),
-                            _renderBuffer->GetHeight(),
-                            _outputBuffer);
+    GLboolean blendEnabled;
+    glGetBooleanv(GL_BLEND, &blendEnabled);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+
     _compositor.Draw();
+
+    if (!blendEnabled) {
+        glDisable(GL_BLEND);
+    }
 }
 
 
@@ -288,15 +573,19 @@ std::ostream& operator<<(std::ostream& out, const HdxColorizeTaskParams& pv)
 {
     out << "ColorizeTask Params: (...) "
         << pv.aovName << " "
-        << pv.renderBuffer;
+        << pv.aovBufferPath << " "
+        << pv.depthBufferPath << " "
+        << pv.applyColorQuantization;
     return out;
 }
 
 bool operator==(const HdxColorizeTaskParams& lhs,
                 const HdxColorizeTaskParams& rhs)
 {
-    return lhs.aovName      == rhs.aovName      &&
-           lhs.renderBuffer == rhs.renderBuffer;
+    return lhs.aovName         == rhs.aovName          &&
+           lhs.aovBufferPath   == rhs.aovBufferPath    &&
+           lhs.depthBufferPath == rhs.depthBufferPath  &&
+           lhs.applyColorQuantization == rhs.applyColorQuantization;
 }
 
 bool operator!=(const HdxColorizeTaskParams& lhs,

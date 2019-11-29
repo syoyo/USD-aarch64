@@ -93,6 +93,16 @@ public:
         return !(lhs == rhs);
     }
 
+    /// Returns \c true if the size of the array returned by 
+    /// skeleton::GetBindTransformsAttr() matches the number of joints in the skeleton.
+    USDSKEL_API
+    bool HasBindPose() const;
+
+    /// Returns \c true if the size of the array returned by
+    /// skeleton::GetRestTransformsAttr() matches the number of joints in the skeleton.
+    USDSKEL_API
+    bool HasRestPose() const;
+
     // hash_value overload for std/boost hash.
     USDSKEL_API
     friend size_t hash_value(const UsdSkelSkeletonQuery& query);
@@ -114,6 +124,11 @@ public:
     /// Returns the topology of the bound skeleton instance, if any.
     USDSKEL_API
     const UsdSkelTopology& GetTopology() const;
+
+    /// Returns a mapper for remapping from the bound animation, if any,
+    /// to the Skeleton.
+    USDSKEL_API
+    const UsdSkelAnimMapper& GetMapper() const;
 
     /// Returns an arrray of joint paths, given as tokens, describing
     /// the order and parent-child relationships of joints in the skeleton.

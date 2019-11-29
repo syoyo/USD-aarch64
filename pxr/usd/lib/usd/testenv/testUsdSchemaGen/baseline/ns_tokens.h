@@ -146,6 +146,10 @@ struct UsdContrivedTokensType {
     /// 
     /// UsdContrivedDerived
     const TfToken creaseLengths;
+    /// \brief "derived"
+    /// 
+    /// Property namespace prefix for the UsdContrivedDerivedMultipleApplyAPI schema.
+    const TfToken derived;
     /// \brief "double2"
     /// 
     /// UsdContrivedBase
@@ -342,6 +346,10 @@ struct UsdContrivedTokensType {
     /// 
     /// UsdContrivedBase
     const TfToken myVaryingToken;
+    /// \brief "myVaryingTokenArray"
+    /// 
+    /// UsdContrivedBase
+    const TfToken myVaryingTokenArray;
     /// \brief "myVecfArray"
     /// 
     /// UsdContrivedDerived
@@ -438,6 +446,14 @@ struct UsdContrivedTokensType {
     /// 
     /// UsdContrivedTestHairman
     const TfToken riStatementsAttributesUserGofur_GeomOnHairdensity;
+    /// \brief "schemaToken1"
+    /// 
+    /// Special token for the UsdContrivedBase schema.
+    const TfToken schemaToken1;
+    /// \brief "/non-identifier-tokenValue!"
+    /// 
+    /// schemaToken2 doc
+    const TfToken schemaToken2;
     /// \brief "string"
     /// 
     /// UsdContrivedBase
@@ -450,6 +466,10 @@ struct UsdContrivedTokensType {
     /// 
     /// UsdContrivedTestHairman
     const TfToken temp;
+    /// \brief "test"
+    /// 
+    /// Property namespace prefix for the UsdContrivedMultipleApplyAPI schema.
+    const TfToken test;
     /// \brief "testAttrOne"
     /// 
     /// UsdContrivedPublicMultipleApplyAPI, UsdContrivedMultipleApplyAPI
@@ -466,6 +486,10 @@ struct UsdContrivedTokensType {
     /// 
     /// UsdContrivedDerived
     const TfToken testingAsset;
+    /// \brief "testo"
+    /// 
+    /// Property namespace prefix for the UsdContrivedPublicMultipleApplyAPI schema.
+    const TfToken testo;
     /// \brief "token"
     /// 
     /// Default value for UsdContrivedBase::GetTokenAttr(), UsdContrivedBase
@@ -506,10 +530,18 @@ struct UsdContrivedTokensType {
     /// 
     /// Possible value for UsdContrivedBase::GetMyVaryingTokenAttr()
     const TfToken variableTokenAllowed1;
-    /// \brief "VariabletokenAllowed2"
+    /// \brief "VariableTokenAllowed2"
     /// 
     /// Possible value for UsdContrivedBase::GetMyVaryingTokenAttr()
-    const TfToken variabletokenAllowed2;
+    const TfToken variableTokenAllowed2;
+    /// \brief "VariableTokenArrayAllowed1"
+    /// 
+    /// Possible value for UsdContrivedBase::GetMyVaryingTokenArrayAttr()
+    const TfToken variableTokenArrayAllowed1;
+    /// \brief "VariableTokenArrayAllowed2"
+    /// 
+    /// Possible value for UsdContrivedBase::GetMyVaryingTokenArrayAttr()
+    const TfToken variableTokenArrayAllowed2;
     /// \brief "VariableTokenDefault"
     /// 
     /// Default value for UsdContrivedBase::GetMyVaryingTokenAttr()

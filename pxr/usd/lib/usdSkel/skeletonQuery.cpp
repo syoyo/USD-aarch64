@@ -48,6 +48,17 @@ UsdSkelSkeletonQuery::UsdSkelSkeletonQuery(
     }
 }
 
+bool 
+UsdSkelSkeletonQuery::HasBindPose() const 
+{
+    return _definition->HasBindPose();
+}
+
+bool 
+UsdSkelSkeletonQuery::HasRestPose() const 
+{
+    return _definition->HasRestPose();
+}
 
 size_t
 hash_value(const UsdSkelSkeletonQuery& query)
@@ -107,7 +118,7 @@ UsdSkelSkeletonQuery::_ComputeJointLocalTransforms(VtArray<Matrix4>* xforms,
 
     if (_animToSkelMapper.IsSparse()) {
         // Animation does not override all values;
-        // Need to first fill in bind transforms.
+        // Need to first fill in rest transforms.
         if (!_definition->GetJointLocalRestTransforms(xforms)) {
             TF_WARN("%s -- Failed computing local space transforms: "
                     "the the animation source (<%s>) is sparse, but the "
@@ -203,7 +214,7 @@ _MultTransforms(TfSpan<const Matrix4> a,
 {
     TF_DEV_AXIOM(a.size() == b.size() && a.size() == out.size());
 
-    for (ptrdiff_t i = 0; i < out.size(); ++i) {    
+    for (size_t i = 0; i < out.size(); ++i) {    
         out[i] = a[i] * b[i];
     }
 }
@@ -430,6 +441,13 @@ UsdSkelSkeletonQuery::GetTopology() const
     }
     static const UsdSkelTopology null{};
     return null;
+}
+
+
+const UsdSkelAnimMapper&
+UsdSkelSkeletonQuery::GetMapper() const
+{
+    return _animToSkelMapper;
 }
 
 

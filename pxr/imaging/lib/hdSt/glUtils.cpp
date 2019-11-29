@@ -36,7 +36,6 @@
 #include "pxr/base/gf/vec4i.h"
 #include "pxr/base/gf/matrix4f.h"
 #include "pxr/base/gf/matrix4d.h"
-#include "pxr/imaging/hdSt/glConversions.h"
 #include "pxr/imaging/hd/perfLog.h"
 #include "pxr/imaging/hd/tokens.h"
 #include "pxr/base/vt/array.h"
@@ -62,11 +61,10 @@ TF_DEFINE_ENV_SETTING(HD_ENABLE_GPU_COMPUTE, false,
 static void
 _InitializeGPUComputeEnabled(bool *gpuComputeEnabled)
 {
-    const GlfContextCaps &caps = GlfContextCaps::GetInstance();
-    
     // GPU Compute
     if (TfGetEnvSetting(HD_ENABLE_GPU_COMPUTE)) {
 #if OPENSUBDIV_HAS_GLSL_COMPUTE
+        const GlfContextCaps &caps = GlfContextCaps::GetInstance();
         if (caps.glslVersion >= 430 && caps.shaderStorageBufferEnabled) {
             *gpuComputeEnabled = true;
         } else {
@@ -105,7 +103,7 @@ _CreateVtArray(int numElements, int arraySize, int stride,
 
     TF_VERIFY(data.size() == stride*(numElements-1) + arraySize*sizeof(T));
 
-    if (stride == arraySize*sizeof(T)) {
+    if (stride == static_cast<int>(arraySize*sizeof(T))) {
         memcpy(dst, src, numElements*arraySize*sizeof(T));
     } else {
         // deinterleaving
@@ -155,7 +153,7 @@ HdStGLUtils::ReadBuffer(GLint vbo,
     // Read data from GL
     std::vector<unsigned char> tmp(vboSize);
     if (caps.directStateAccessEnabled) {
-        glGetNamedBufferSubDataEXT(vbo, vboOffset, vboSize, &tmp[0]);
+        glGetNamedBufferSubData(vbo, vboOffset, vboSize, &tmp[0]);
     } else {
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
         glGetBufferSubData(GL_ARRAY_BUFFER, vboOffset, vboSize, &tmp[0]);
@@ -275,11 +273,11 @@ HdStGLBufferRelocator::Commit()
 
         TF_FOR_ALL (it, _queue) {
             if (ARCH_LIKELY(caps.directStateAccessEnabled)) {
-                glNamedCopyBufferSubDataEXT(_srcBuffer,
-                                            _dstBuffer,
-                                            it->readOffset,
-                                            it->writeOffset,
-                                            it->copySize);
+                glCopyNamedBufferSubData(_srcBuffer,
+                                         _dstBuffer,
+                                         it->readOffset,
+                                         it->writeOffset,
+                                         it->copySize);
             } else {
                 glCopyBufferSubData(GL_COPY_READ_BUFFER,
                                     GL_COPY_WRITE_BUFFER,

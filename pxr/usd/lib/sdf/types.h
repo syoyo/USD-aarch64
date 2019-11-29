@@ -32,6 +32,7 @@
 #include "pxr/usd/sdf/assetPath.h"
 #include "pxr/usd/sdf/declareHandles.h"
 #include "pxr/usd/sdf/listOp.h"
+#include "pxr/usd/sdf/timeCode.h"
 #include "pxr/usd/sdf/valueTypeName.h"
 
 #include "pxr/base/arch/demangle.h"
@@ -66,7 +67,9 @@
 
 #include <boost/noncopyable.hpp>
 #include <boost/preprocessor/list/for_each.hpp>
+#include <boost/preprocessor/list/size.hpp>
 #include <boost/preprocessor/punctuation/comma.hpp>
+#include <boost/preprocessor/selection/max.hpp>
 #include <boost/preprocessor/seq/for_each.hpp>
 #include <boost/preprocessor/seq/seq.hpp>
 #include <boost/preprocessor/tuple/elem.hpp>
@@ -285,9 +288,6 @@ SDF_API const TfEnum &SdfDefaultUnit( const TfEnum &unit );
 /// Gets the unit category for a given /a unit.
 SDF_API const std::string &SdfUnitCategory( const TfEnum &unit );
 
-/// Gets the type/unit pair for a unit enum.
-std::pair<uint32_t, uint32_t> Sdf_GetUnitIndices( const TfEnum &unit );
-
 /// Converts from one unit of measure to another. The \a fromUnit and \a toUnit
 /// units must be of the same type (for example, both of type SdfLengthUnit).
 SDF_API double SdfConvertUnit( const TfEnum &fromUnit, const TfEnum &toUnit );
@@ -343,6 +343,7 @@ SDF_API TfToken SdfGetRoleNameForValueTypeName(TfToken const &typeName);
     ((Half,       half,       GfHalf,         ()    )) \
     ((Float,      float,      float,          ()    )) \
     ((Double,     double,     double,         ()    )) \
+    ((TimeCode,   timecode,   SdfTimeCode,    ()    )) \
     ((String,     string,     std::string,    ()    )) \
     ((Token,      token,      TfToken,        ()    )) \
     ((Asset,      asset,      SdfAssetPath,   ()    ))
@@ -414,8 +415,6 @@ TF_DECLARE_PUBLIC_TOKENS(SdfValueRoleNames, SDF_API, SDF_VALUE_ROLE_NAME_TOKENS)
 SDF_DECLARE_HANDLES(SdfLayer);
 
 SDF_DECLARE_HANDLES(SdfAttributeSpec);
-SDF_DECLARE_HANDLES(SdfMapperArgSpec);
-SDF_DECLARE_HANDLES(SdfMapperSpec);
 SDF_DECLARE_HANDLES(SdfPrimSpec);
 SDF_DECLARE_HANDLES(SdfPropertySpec);
 SDF_DECLARE_HANDLES(SdfSpec);
@@ -491,7 +490,7 @@ class Sdf_ValueTypeNamesType : boost::noncopyable {
 public:
     SdfValueTypeName Bool;
     SdfValueTypeName UChar, Int, UInt, Int64, UInt64;
-    SdfValueTypeName Half, Float, Double;
+    SdfValueTypeName Half, Float, Double, TimeCode;
     SdfValueTypeName String, Token, Asset;
     SdfValueTypeName Int2,     Int3,     Int4;
     SdfValueTypeName Half2,    Half3,    Half4;
@@ -510,7 +509,7 @@ public:
 
     SdfValueTypeName BoolArray;
     SdfValueTypeName UCharArray, IntArray, UIntArray, Int64Array, UInt64Array;
-    SdfValueTypeName HalfArray, FloatArray, DoubleArray;
+    SdfValueTypeName HalfArray, FloatArray, DoubleArray, TimeCodeArray;
     SdfValueTypeName StringArray, TokenArray, AssetArray;
     SdfValueTypeName Int2Array,     Int3Array,     Int4Array;
     SdfValueTypeName Half2Array,    Half3Array,    Half4Array;
@@ -538,7 +537,7 @@ public:
     TfToken GetSerializationName(const TfToken&) const;
 
 private:
-    friend class SdfSchema;
+    friend const Sdf_ValueTypeNamesType* Sdf_InitializeValueTypeNames();
     Sdf_ValueTypeNamesType();
 };
 

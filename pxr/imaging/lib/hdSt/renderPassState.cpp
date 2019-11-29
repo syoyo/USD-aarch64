@@ -26,16 +26,19 @@
 
 #include "pxr/imaging/hdSt/bufferArrayRangeGL.h"
 #include "pxr/imaging/hdSt/drawItem.h"
+#include "pxr/imaging/hdSt/glConversions.h"
 #include "pxr/imaging/hdSt/fallbackLightingShader.h"
+#include "pxr/imaging/hdSt/renderBuffer.h"
 #include "pxr/imaging/hdSt/renderPassShader.h"
 #include "pxr/imaging/hdSt/renderPassState.h"
 #include "pxr/imaging/hdSt/shaderCode.h"
 
 #include "pxr/imaging/hd/changeTracker.h"
-#include "pxr/imaging/hdSt/glConversions.h"
 #include "pxr/imaging/hd/resourceRegistry.h"
 #include "pxr/imaging/hd/tokens.h"
 #include "pxr/imaging/hd/vtBufferSource.h"
+
+#include "pxr/imaging/hgi/graphicsEncoderDesc.h"
 
 #include "pxr/base/gf/frustum.h"
 #include "pxr/base/tf/staticTokens.h"
@@ -85,18 +88,23 @@ HdStRenderPassState::_UseAlphaMask() const
 
 void
 HdStRenderPassState::Prepare(
-                            HdResourceRegistrySharedPtr const &resourceRegistry)
+    HdResourceRegistrySharedPtr const &resourceRegistry)
 {
     HD_TRACE_FUNCTION();
     HF_MALLOC_TAG_FUNCTION();
     GLF_GROUP_FUNCTION();
 
+    HdRenderPassState::Prepare(resourceRegistry);
+
     VtVec4fArray clipPlanes;
-    TF_FOR_ALL(it, _clipPlanes) {
+    TF_FOR_ALL(it, GetClipPlanes()) {
         clipPlanes.push_back(GfVec4f(*it));
     }
-    if (clipPlanes.size() >= GL_MAX_CLIP_PLANES) {
-        clipPlanes.resize(GL_MAX_CLIP_PLANES);
+    GLint glMaxClipPlanes;
+    glGetIntegerv(GL_MAX_CLIP_PLANES, &glMaxClipPlanes);
+    size_t maxClipPlanes = (size_t)glMaxClipPlanes;
+    if (clipPlanes.size() >= maxClipPlanes) {
+        clipPlanes.resize(maxClipPlanes);
     }
 
     // allocate bar if not exists
@@ -182,16 +190,19 @@ HdStRenderPassState::Prepare(
     // only using the feature to turn lighting on and off.
     float lightingBlendAmount = (_lightingEnabled ? 1.0f : 0.0f);
 
+    GfMatrix4d const& worldToViewMatrix = GetWorldToViewMatrix();
+    GfMatrix4d projMatrix = GetProjectionMatrix();
+
     HdBufferSourceVector sources;
     sources.push_back(HdBufferSourceSharedPtr(
                          new HdVtBufferSource(HdShaderTokens->worldToViewMatrix,
-                                              _worldToViewMatrix)));
+                                              worldToViewMatrix)));
     sources.push_back(HdBufferSourceSharedPtr(
                   new HdVtBufferSource(HdShaderTokens->worldToViewInverseMatrix,
-                                       _worldToViewMatrix.GetInverse())));
+                                       worldToViewMatrix.GetInverse() )));
     sources.push_back(HdBufferSourceSharedPtr(
                           new HdVtBufferSource(HdShaderTokens->projectionMatrix,
-                                               _projectionMatrix)));
+                                               projMatrix)));
     // Override color alpha component is used as the amount to blend in the
     // override color over the top of the regular fragment color.
     sources.push_back(HdBufferSourceSharedPtr(
@@ -244,7 +255,7 @@ HdStRenderPassState::Prepare(
     resourceRegistry->AddSources(_renderPassStateBar, sources);
 
     // notify view-transform to the lighting shader to update its uniform block
-    _lightingShader->SetCamera(_worldToViewMatrix, _projectionMatrix);
+    _lightingShader->SetCamera(worldToViewMatrix, projMatrix);
 
     // Update cull style on renderpass shader
     // XXX: Ideanlly cullstyle should stay in renderPassState.
@@ -305,13 +316,12 @@ HdStRenderPassState::Bind()
         return;
     }
     
-    // XXX: this states set will be refactored as hdstream PSO.
-    
     // notify view-transform to the lighting shader to update its uniform block
-    // this needs to be done in execute as a multi camera setup may have been synced
-    // with a different view matrix baked in for shadows.
+    // this needs to be done in execute as a multi camera setup may have been 
+    // synced with a different view matrix baked in for shadows.
     // SetCamera will no-op if the transforms are the same as before.
-    _lightingShader->SetCamera(_worldToViewMatrix, _projectionMatrix);
+    _lightingShader->SetCamera(GetWorldToViewMatrix(),
+                               GetProjectionMatrix());
 
     // XXX: viewport should be set.
     // glViewport((GLint)_viewport[0], (GLint)_viewport[1],
@@ -377,8 +387,10 @@ HdStRenderPassState::Bind()
         }
     }
     glEnable(GL_PROGRAM_POINT_SIZE);
-    for (size_t i = 0; i < _clipPlanes.size(); ++i) {
-        if (i >= GL_MAX_CLIP_PLANES) {
+    GLint glMaxClipPlanes;
+    glGetIntegerv(GL_MAX_CLIP_PLANES, &glMaxClipPlanes);
+    for (size_t i = 0; i < GetClipPlanes().size(); ++i) {
+        if (i >= (size_t)glMaxClipPlanes) {
             break;
         }
         glEnable(GL_CLIP_DISTANCE0 + i);
@@ -422,7 +434,7 @@ HdStRenderPassState::Unbind()
     glBlendFuncSeparate(GL_ONE, GL_ZERO, GL_ONE, GL_ZERO);
     glBlendColor(0.0f, 0.0f, 0.0f, 0.0f);
 
-    for (size_t i = 0; i < _clipPlanes.size(); ++i) {
+    for (size_t i = 0; i < GetClipPlanes().size(); ++i) {
         glDisable(GL_CLIP_DISTANCE0 + i);
     }
 
@@ -440,9 +452,76 @@ HdStRenderPassState::GetShaderHash() const
     if (_renderPassShader) {
         boost::hash_combine(hash, _renderPassShader->ComputeHash());
     }
-    boost::hash_combine(hash, _clipPlanes.size());
+    boost::hash_combine(hash, GetClipPlanes().size());
     boost::hash_combine(hash, _UseAlphaMask());
     return hash;
+}
+
+HgiGraphicsEncoderDesc
+HdStRenderPassState::MakeGraphicsEncoderDesc() const
+{
+    const size_t maxColorAttachments = 8;
+    const HdRenderPassAovBindingVector& aovBindings = GetAovBindings();
+
+    HgiGraphicsEncoderDesc desc;
+
+    // If the AOV bindings have not changed that does NOT mean the
+    // graphicsEncoderDescriptor will not change. The HdRenderBuffer may be
+    // resized at any time, which will destroy and recreate the HgiTextureHandle
+    // that backs the render buffer and was attached for graphics encoding.
+
+    for (const HdRenderPassAovBinding& aov : aovBindings) {
+        HdStRenderBuffer const* stRenderBuffer = 
+            dynamic_cast<HdStRenderBuffer const*>(aov.renderBuffer);
+
+        if (!TF_VERIFY(stRenderBuffer, "Invalid render buffer")) {
+            continue;
+        }
+        HgiTextureHandle hgiTexHandle = aov.renderBuffer->IsMultiSampled() ?
+            stRenderBuffer->GetMultiSampleTextureHandle() :
+            stRenderBuffer->GetTextureHandle();
+
+        if (!TF_VERIFY(hgiTexHandle, "Invalid render buffer texture")) {
+            continue;
+        }
+
+        // Assume AOVs have the same dimensions so pick size of any.
+        desc.width = aov.renderBuffer->GetWidth();
+        desc.height = aov.renderBuffer->GetHeight();
+
+        HgiAttachmentDesc attachmentDesc;
+
+        HgiSampleCount sampleCount = aov.renderBuffer->IsMultiSampled() ?
+            HgiSampleCount4 : HgiSampleCount1;
+
+        HgiAttachmentLoadOp loadOp = aov.clearValue.IsEmpty() ?
+            HgiAttachmentLoadOpDontCare :
+            HgiAttachmentLoadOpClear;
+
+        attachmentDesc.texture = hgiTexHandle;
+        attachmentDesc.sampleCount = sampleCount;
+        attachmentDesc.loadOp = loadOp;
+        attachmentDesc.storeOp = HgiAttachmentStoreOpStore;
+
+        if (aov.clearValue.IsHolding<float>()) {
+            float depth = aov.clearValue.UncheckedGet<float>();
+            attachmentDesc.clearValue = GfVec4f(depth,0,0,0);
+        } else if (aov.clearValue.IsHolding<GfVec4f>()) {
+            const GfVec4f& col = aov.clearValue.UncheckedGet<GfVec4f>();
+            attachmentDesc.clearValue = col;
+        }
+
+        if (aov.aovName == HdAovTokens->linearDepth ||
+            aov.aovName == HdAovTokens->depth) {
+            desc.depthAttachment = std::move(attachmentDesc);
+        } else if (TF_VERIFY(desc.colorAttachments.size() < maxColorAttachments, 
+                            "Too many aov bindings for color attachments")) 
+        {
+            desc.colorAttachments.emplace_back(std::move(attachmentDesc));
+        }
+    }
+
+    return desc;
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

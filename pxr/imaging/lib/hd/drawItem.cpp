@@ -60,6 +60,9 @@ HdDrawItem::GetBufferArraysHash() const
                         GetElementPrimvarRange() ?
                         GetElementPrimvarRange()->GetVersion() : 0);
     boost::hash_combine(hash,
+                        GetFaceVaryingPrimvarRange() ?
+                        GetFaceVaryingPrimvarRange()->GetVersion() : 0);
+    boost::hash_combine(hash,
                         GetTopologyVisibilityRange() ?
                         GetTopologyVisibilityRange()->GetVersion() : 0);
     int instancerNumLevels = GetInstancePrimvarNumLevels();
@@ -71,6 +74,9 @@ HdDrawItem::GetBufferArraysHash() const
     boost::hash_combine(hash,
                         GetInstanceIndexRange() ?
                         GetInstanceIndexRange()->GetVersion(): 0);
+
+    boost::hash_combine(hash, _GetBufferArraysHash());
+
     return hash;
 }
 
@@ -121,6 +127,13 @@ std::ostream &operator <<(std::ostream &out,
     }
     return out;
 }
+
+size_t
+HdDrawItem::_GetBufferArraysHash() const
+{
+    return 0;
+}
+
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

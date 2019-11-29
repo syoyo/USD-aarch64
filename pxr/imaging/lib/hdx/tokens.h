@@ -33,13 +33,30 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 
 #define HDX_TOKENS              \
+    (hdxOitCounterBuffer)       \
+    (hdxOitDataBuffer)          \
+    (hdxOitDepthBuffer)         \
+    (hdxOitIndexBuffer)         \
     (hdxSelectionBuffer)        \
     (imagerVersion)             \
     (lightingContext)           \
     (lightingShader)            \
+    (oitCounter)                \
+    (oitData)                   \
+    (oitDepth)                  \
+    (oitIndices)                \
+    (oitUniforms)               \
+    (oitCounterBufferBar)       \
+    (oitDataBufferBar)          \
+    (oitDepthBufferBar)         \
+    (oitIndexBufferBar)         \
+    (oitUniformBar)             \
+    (oitRenderPassState)        \
+    (oitScreenSize)             \
+    (oitRequestFlag)            \
+    (oitClearedFlag)            \
     (renderPassState)           \
     (renderIndexVersion)        \
-    (renderTags)                \
     (selection)                 \
     (selectionState)            \
     (selectionOffsets)          \
@@ -47,7 +64,8 @@ PXR_NAMESPACE_OPEN_SCOPE
     (selColor)                  \
     (selLocateColor)            \
     (selectionPointColors)      \
-    (drawTargetRenderPasses)
+    (drawTargetRenderPasses)    \
+    (aovBindings)
 
 TF_DECLARE_PUBLIC_TOKENS(HdxTokens, HDX_API, HDX_TOKENS);
 
@@ -56,12 +74,18 @@ TF_DECLARE_PUBLIC_TOKENS(HdxTokens, HDX_API, HDX_TOKENS);
     (lightTypeDirectional)      \
     (lightTypeSpot)             \
                                 \
+    (oitRenderTask)             \
+    (oitResolveTask)            \
     (renderTask)                \
     (renderSetupTask)           \
     (simpleLightTask)           \
     (shadowTask)                \
     (drawTargetTask)            \
-    (drawTargetResolveTask)
+    (drawTargetResolveTask)     \
+    (pickTask)                  \
+    (pickFromRenderBufferTask)  \
+    (colorizeTask)              \
+    (colorizeSelectionTask)
 
 TF_DECLARE_PUBLIC_TOKENS(HdxPrimitiveTokens, HDX_API, HDX_PRIMITIVE_TOKENS);
 
@@ -70,8 +94,7 @@ TF_DECLARE_PUBLIC_TOKENS(HdxPrimitiveTokens, HDX_API, HDX_PRIMITIVE_TOKENS);
 
 TF_DECLARE_PUBLIC_TOKENS(HdxOptionTokens, HDX_API, HDX_OPTION_TOKENS);
 
-#define HDX_RENDERTAGS_TOKENS   \
-    (guide)                     \
+#define HDX_RENDERTAG_TOKENS   \
     (renderingGuide)            \
     (label)                     \
     (cameraGuide)               \
@@ -79,9 +102,11 @@ TF_DECLARE_PUBLIC_TOKENS(HdxOptionTokens, HDX_API, HDX_OPTION_TOKENS);
     (interactiveOnlyGeom)       \
     (path)
 
-TF_DECLARE_PUBLIC_TOKENS(HdxRenderTagsTokens, HDX_API, HDX_RENDERTAGS_TOKENS);
+TF_DECLARE_PUBLIC_TOKENS(HdxRenderTagTokens, HDX_API, HDX_RENDERTAG_TOKENS);
 
+// XXX Deprecated Use: HdStMaterialTagTokens
 #define HDX_MATERIALTAG_TOKENS   \
+    (additive)                   \
     (translucent)
 
 TF_DECLARE_PUBLIC_TOKENS(HdxMaterialTagTokens, HDX_API, HDX_MATERIALTAG_TOKENS);

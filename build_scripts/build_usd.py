@@ -25,6 +25,7 @@ from distutils.spawn import find_executable
 
 import argparse
 import contextlib
+import ctypes
 import datetime
 import distutils
 import fnmatch
@@ -243,6 +244,16 @@ def CopyDirectory(context, srcDir, destDir):
                        .format(srcDir=srcDir, destDir=instDestDir))
     shutil.copytree(srcDir, instDestDir)
 
+def FormatMultiProcs(numJobs, generator):
+    tag = "-j"
+    if generator:
+        if "Visual Studio" in generator:
+            tag = "/M:"
+        elif "Xcode" in generator:
+            tag = "-j "
+
+    return "{tag}{procs}".format(tag=tag, procs=numJobs)
+
 def RunCMake(context, force, extraArgs = None):
     """Invoke CMake to configure, build, and install a library whose 
     source code is located in the current working directory."""
@@ -301,10 +312,7 @@ def RunCMake(context, force, extraArgs = None):
                     extraArgs=(" ".join(extraArgs) if extraArgs else "")))
         Run("cmake --build . --config {config} --target install -- {multiproc}"
             .format(config=config,
-                    multiproc=("/M:{procs}"
-                               if generator and "Visual Studio" in generator
-                               else "-j{procs}")
-                              .format(procs=context.numJobs)))
+                    multiproc=FormatMultiProcs(context.numJobs, generator)))
 
 def PatchFile(filename, patches, multiLineMatches=False):
     """Applies patches to the specified file. patches is a list of tuples
@@ -635,6 +643,12 @@ def InstallTBB_Windows(context, force, buildArgs):
 
 def InstallTBB_LinuxOrMacOS(context, force, buildArgs):
     with CurrentWorkingDirectory(DownloadURL(TBB_URL, context, force)):
+        # Note: TBB installation fails on OSX when cuda is installed, a 
+        # suggested fix:
+        # https://github.com/spack/spack/issues/6000#issuecomment-358817701
+        if MacOS():
+            PatchFile("build/macos.inc", 
+                    [("shell clang -v ", "shell clang --version ")])
         # TBB does not support out-of-source builds in a custom location.
         Run('make -j{procs} {buildArgs}'
             .format(procs=context.numJobs, 
@@ -1036,6 +1050,19 @@ def InstallAlembic(context, force, buildArgs):
 ALEMBIC = Dependency("Alembic", InstallAlembic, "include/Alembic/Abc/Base.h")
 
 ############################################################
+# Draco
+
+DRACO_URL = "https://github.com/google/draco/archive/master.zip"
+
+def InstallDraco(context, force, buildArgs):
+    with CurrentWorkingDirectory(DownloadURL(DRACO_URL, context, force)):
+        cmakeOptions = ['-DBUILD_USD_PLUGIN=ON']
+        cmakeOptions += buildArgs
+        RunCMake(context, force, cmakeOptions)
+
+DRACO = Dependency("Draco", InstallDraco, "include/Draco/src/draco/compression/decode.h")
+
+############################################################
 # MaterialX
 
 MATERIALX_URL = "https://github.com/materialx/MaterialX/archive/v1.36.0.zip"
@@ -1111,6 +1138,14 @@ def InstallUSD(context, force, buildArgs):
                 extraArgs.append('-DPXR_BUILD_EMBREE_PLUGIN=ON')
             else:
                 extraArgs.append('-DPXR_BUILD_EMBREE_PLUGIN=OFF')
+
+            if context.buildPrman:
+                if context.prmanLocation:
+                    extraArgs.append('-DRENDERMAN_LOCATION="{location}"'
+                                     .format(location=context.prmanLocation))
+                extraArgs.append('-DPXR_BUILD_PRMAN_PLUGIN=ON')
+            else:
+                extraArgs.append('-DPXR_BUILD_PRMAN_PLUGIN=OFF')                
             
             if context.buildOIIO:
                 extraArgs.append('-DPXR_BUILD_OPENIMAGEIO_PLUGIN=ON')
@@ -1148,6 +1183,14 @@ def InstallUSD(context, force, buildArgs):
                 extraArgs.append('-DPXR_ENABLE_HDF5_SUPPORT=OFF')
         else:
             extraArgs.append('-DPXR_BUILD_ALEMBIC_PLUGIN=OFF')
+
+        if context.buildDraco:
+            extraArgs.append('-DPXR_BUILD_DRACO_PLUGIN=ON')
+            draco_root = (context.dracoLocation
+                          if context.dracoLocation else context.instDir)
+            extraArgs.append('-DDRACO_ROOT="{}"'.format(draco_root))
+        else:
+            extraArgs.append('-DPXR_BUILD_DRACO_PLUGIN=OFF')
 
         if context.buildMaterialX:
             extraArgs.append('-DPXR_BUILD_MATERIALX_PLUGIN=ON')
@@ -1355,6 +1398,14 @@ subgroup.add_argument("--no-embree", dest="build_embree", action="store_false",
 group.add_argument("--embree-location", type=str,
                    help="Directory where Embree is installed.")
 subgroup = group.add_mutually_exclusive_group()
+subgroup.add_argument("--prman", dest="build_prman", action="store_true",
+                      default=False,
+                      help="Build Pixar's RenderMan imaging plugin")
+subgroup.add_argument("--no-prman", dest="build_prman", action="store_false",
+                      help="Do not build Pixar's RenderMan imaging plugin (default)")
+group.add_argument("--prman-location", type=str,
+                   help="Directory where Pixar's RenderMan is installed.")
+subgroup = group.add_mutually_exclusive_group()
 subgroup.add_argument("--openimageio", dest="build_oiio", action="store_true", 
                       default=False,
                       help="Build OpenImageIO plugin for USD")
@@ -1380,6 +1431,16 @@ subgroup.add_argument("--hdf5", dest="enable_hdf5", action="store_true",
                       help="Enable HDF5 support in the Alembic plugin")
 subgroup.add_argument("--no-hdf5", dest="enable_hdf5", action="store_false",
                       help="Disable HDF5 support in the Alembic plugin (default)")
+
+group = parser.add_argument_group(title="Draco Plugin Options")
+subgroup = group.add_mutually_exclusive_group()
+subgroup.add_argument("--draco", dest="build_draco", action="store_true", 
+                      default=False,
+                      help="Build Draco plugin for USD")
+subgroup.add_argument("--no-draco", dest="build_draco", action="store_false",
+                      help="Do not build Draco plugin for USD (default)")
+group.add_argument("--draco-location", type=str,
+                   help="Directory where Draco is installed.")
 
 group = parser.add_argument_group(title="MaterialX Plugin Options")
 subgroup = group.add_mutually_exclusive_group()
@@ -1508,12 +1569,20 @@ class InstallContext:
         self.buildEmbree = self.buildImaging and args.build_embree
         self.embreeLocation = (os.path.abspath(args.embree_location)
                                if args.embree_location else None)
+        self.buildPrman = self.buildImaging and args.build_prman
+        self.prmanLocation = (os.path.abspath(args.prman_location)
+                               if args.prman_location else None)                               
         self.buildOIIO = args.build_oiio
         self.buildOCIO = args.build_ocio
 
         # - Alembic Plugin
         self.buildAlembic = args.build_alembic
         self.enableHDF5 = self.buildAlembic and args.enable_hdf5
+
+        # - Draco Plugin
+        self.buildDraco = args.build_draco
+        self.dracoLocation = (os.path.abspath(args.draco_location)
+                                if args.draco_location else None)
 
         # - MaterialX Plugin
         self.buildMaterialX = args.build_materialx
@@ -1575,6 +1644,9 @@ if context.buildAlembic:
     if context.enableHDF5:
         requiredDependencies += [HDF5]
     requiredDependencies += [OPENEXR, ALEMBIC]
+
+if context.buildDraco:
+    requiredDependencies += [DRACO]
 
 if context.buildMaterialX:
     requiredDependencies += [MATERIALX]
@@ -1684,7 +1756,18 @@ if (not find_executable("g++") and
     PrintError("C++ compiler not found -- please install a compiler")
     sys.exit(1)
 
-if not find_executable("python"):
+pythonExecutable = find_executable("python")
+if pythonExecutable:
+    # Error out if a 64bit version of python interpreter is not found
+    # Note: Ideally we should be checking the python binary found above, but
+    # there is an assumption (for very valid reasons) at other places in the
+    # script that the python process used to run this script will be found.
+    isPython64Bit = (ctypes.sizeof(ctypes.c_voidp) == 8)
+    if not isPython64Bit:
+        PrintError("64bit python not found -- please install it and adjust your"
+                   "PATH")
+        sys.exit(1)
+else:
     PrintError("python not found -- please ensure python is included in your "
                "PATH")
     sys.exit(1)
@@ -1741,6 +1824,7 @@ Building with settings:
       Ptex support:             {enablePtex}
       OpenImageIO support:      {buildOIIO} 
       OpenColorIO support:      {buildOCIO} 
+      PRMan support:            {buildPrman}
     UsdImaging                  {buildUsdImaging}
       usdview:                  {buildUsdview}
     Python support              {buildPython}
@@ -1748,6 +1832,7 @@ Building with settings:
     Tests                       {buildTests}
     Alembic Plugin              {buildAlembic}
       HDF5 support:             {enableHDF5}
+    Draco Plugin                {buildDraco}
     MaterialX Plugin            {buildMaterialX}
     Maya Plugin                 {buildMaya}
     Katana Plugin               {buildKatana}
@@ -1789,12 +1874,14 @@ summaryMsg = summaryMsg.format(
     enablePtex=("On" if context.enablePtex else "Off"),
     buildOIIO=("On" if context.buildOIIO else "Off"),
     buildOCIO=("On" if context.buildOCIO else "Off"),
+    buildPrman=("On" if context.buildPrman else "Off"),
     buildUsdImaging=("On" if context.buildUsdImaging else "Off"),
     buildUsdview=("On" if context.buildUsdview else "Off"),
     buildPython=("On" if context.buildPython else "Off"),
     buildDocs=("On" if context.buildDocs else "Off"),
     buildTests=("On" if context.buildTests else "Off"),
     buildAlembic=("On" if context.buildAlembic else "Off"),
+    buildDraco=("On" if context.buildDraco else "Off"),
     buildMaterialX=("On" if context.buildMaterialX else "Off"),
     enableHDF5=("On" if context.enableHDF5 else "Off"),
     buildMaya=("On" if context.buildMaya else "Off"),
@@ -1885,3 +1972,7 @@ if context.buildKatana:
 if context.buildHoudini:
     Print("See documentation at http://openusd.org/docs/Houdini-USD-Plugins.html "
           "for setting up the Houdini plugin.\n")
+
+if context.buildPrman:
+    Print("See documentation at http://openusd.org/docs/RenderMan-USD-Imaging-Plugin.html "
+          "for setting up the RenderMan plugin.\n")

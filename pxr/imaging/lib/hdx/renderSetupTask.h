@@ -75,14 +75,9 @@ public:
                     HdxRenderTaskParams const &params);
     HDX_API
     void PrepareCamera(HdRenderIndex* renderIndex);
-    HDX_API
-    void PrepareAovBindings(HdRenderIndex* renderIndex);
 
     HdRenderPassStateSharedPtr const &GetRenderPassState() const {
         return _renderPassState;
-    }
-    TfTokenVector const &GetRenderTags() const {
-        return _renderTags;
     }
 
     /// Sync the render pass resources
@@ -100,14 +95,12 @@ public:
     HDX_API
     virtual void Execute(HdTaskContext* ctx) override;
 
-
 private:
     HdRenderPassStateSharedPtr _renderPassState;
     HdStRenderPassShaderSharedPtr _colorRenderPassShader;
     HdStRenderPassShaderSharedPtr _idRenderPassShader;
     GfVec4d _viewport;
     SdfPath _cameraId;
-    TfTokenVector _renderTags;
     HdRenderPassAovBindingVector _aovBindings;
 
     static HdStShaderCodeSharedPtr _overrideShader;
@@ -118,6 +111,8 @@ private:
                                  HdStRenderPassState *renderPassState);
 
     HdRenderPassStateSharedPtr &_GetRenderPassState(HdRenderIndex* renderIndex);
+
+    void _PrepareAovBindings(HdTaskContext* ctx, HdRenderIndex* renderIndex);
 
 
     HdxRenderSetupTask() = delete;
@@ -143,7 +138,6 @@ struct HdxRenderTaskParams
         , enableIdRender(false)
         , alphaThreshold(0.0)
         , enableSceneMaterials(true)
-        , renderTags()
         , depthBiasUseDefault(true)
         , depthBiasEnable(false)
         , depthBiasConstantFactor(0.0f)
@@ -184,7 +178,6 @@ struct HdxRenderTaskParams
     bool enableIdRender;
     float alphaThreshold;
     bool enableSceneMaterials;
-    TfTokenVector renderTags;
 
     // Depth Bias Raster State
     // When use default is true - state

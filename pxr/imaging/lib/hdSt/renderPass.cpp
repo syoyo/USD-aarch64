@@ -24,15 +24,23 @@
 #include "pxr/imaging/hdSt/renderPass.h"
 
 #include "pxr/imaging/glf/contextCaps.h"
+#include "pxr/imaging/glf/glContext.h"
 
+#include "pxr/imaging/hdSt/debugCodes.h"
+#include "pxr/imaging/hdSt/glUtils.h"
 #include "pxr/imaging/hdSt/indirectDrawBatch.h"
 #include "pxr/imaging/hdSt/resourceRegistry.h"
 #include "pxr/imaging/hdSt/renderPassShader.h"
 #include "pxr/imaging/hdSt/renderPassState.h"
 
 #include "pxr/imaging/hdSt/drawItem.h"
+#include "pxr/imaging/hdSt/renderDelegate.h"
 #include "pxr/imaging/hdSt/shaderCode.h"
 #include "pxr/imaging/hdSt/tokens.h"
+
+#include "pxr/imaging/hgi/immediateCommandBuffer.h"
+#include "pxr/imaging/hgi/graphicsEncoder.h"
+#include "pxr/imaging/hgi/graphicsEncoderDesc.h"
 
 #include "pxr/imaging/hd/renderDelegate.h"
 #include "pxr/imaging/hd/vtBufferSource.h"
@@ -50,12 +58,32 @@ HdSt_RenderPass::HdSt_RenderPass(HdRenderIndex *index,
     , _useTinyPrimCulling(false)
     , _collectionVersion(0)
     , _collectionChanged(false)
+    , _drawItemCount(0)
+    , _drawItemsChanged(false)
+    , _hgi(nullptr)
 {
+    HdStRenderDelegate* renderDelegate = 
+        static_cast<HdStRenderDelegate*>(index->GetRenderDelegate());
+    _hgi = renderDelegate->GetHgi();
 }
 
 HdSt_RenderPass::~HdSt_RenderPass()
 {
-    /* NOTHING */
+}
+
+size_t
+HdSt_RenderPass::GetDrawItemCount() const
+{
+    // Note that returning '_drawItems.size()' is only correct during Prepare.
+    // During Execute _drawItems is cleared in SwapDrawItems().
+    // For that reason we return the cached '_drawItemCount' here.
+    return _drawItemCount;
+}
+
+void
+HdSt_RenderPass::_Prepare(TfTokenVector const &renderTags)
+{
+    _PrepareDrawItems(renderTags);
 }
 
 void
@@ -64,7 +92,6 @@ HdSt_RenderPass::_Execute(HdRenderPassStateSharedPtr const &renderPassState,
 {
     HD_TRACE_FUNCTION();
     HF_MALLOC_TAG_FUNCTION();
-    GLF_GROUP_FUNCTION();
 
     // Downcast render pass state
     HdStRenderPassStateSharedPtr stRenderPassState =
@@ -72,7 +99,7 @@ HdSt_RenderPass::_Execute(HdRenderPassStateSharedPtr const &renderPassState,
         renderPassState);
     TF_VERIFY(stRenderPassState);
 
-    _PrepareCommandBuffer();
+    _PrepareCommandBuffer(renderTags);
     
     // CPU frustum culling (if chosen)
     _Cull(stRenderPassState);
@@ -83,24 +110,41 @@ HdSt_RenderPass::_Execute(HdRenderPassStateSharedPtr const &renderPassState,
         GetRenderIndex()->GetResourceRegistry());
     TF_VERIFY(resourceRegistry);
 
-    // renderTags.empty() means draw everything in the collection.
-    if (renderTags.empty()) {
-        for (_HdStCommandBufferMap::iterator it  = _cmdBuffers.begin();
-                                           it != _cmdBuffers.end(); it++) {
-            it->second.PrepareDraw(stRenderPassState, resourceRegistry);
-            it->second.ExecuteDraw(stRenderPassState, resourceRegistry);
-        }
-    } else {
-        TF_FOR_ALL(tag, renderTags) {
-            // Check if the render tag has an associated command buffer
-            if (_cmdBuffers.count(*tag) == 0) {
-                continue;
-            }
+    // XXX Non-Hgi tasks expect default FB. Remove once all tasks use Hgi.
+    GLint fb;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &fb);
 
-            // GPU frustum culling (if chosen)
-            _cmdBuffers[*tag].PrepareDraw(stRenderPassState, resourceRegistry);
-            _cmdBuffers[*tag].ExecuteDraw(stRenderPassState, resourceRegistry);
-        }
+    // Create graphics encoder to render into Aovs.
+    HgiGraphicsEncoderDesc desc = stRenderPassState->MakeGraphicsEncoderDesc();
+    HgiImmediateCommandBuffer& icb = _hgi->GetImmediateCommandBuffer();
+    HgiGraphicsEncoderUniquePtr gfxEncoder = icb.CreateGraphicsEncoder(desc);
+
+    GfVec4i vp;
+
+    // XXX Some tasks do not yet use Aov, so gfx encoder might be null
+    if (gfxEncoder) {
+        gfxEncoder->PushDebugGroup(__ARCH_PRETTY_FUNCTION__);
+
+        // XXX The application may have directly called into glViewport.
+        // We need to remove the offset to avoid double offset when we composite
+        // the Aov back into the client framebuffer.
+        // E.g. UsdView CameraMask.
+        glGetIntegerv(GL_VIEWPORT, vp.data());
+        GfVec4i aovViewport(0, 0, vp[2]+vp[0], vp[3]+vp[1]);
+        gfxEncoder->SetViewport(aovViewport);
+    }
+
+    // Draw
+    _cmdBuffer.PrepareDraw(stRenderPassState, resourceRegistry);
+    _cmdBuffer.ExecuteDraw(stRenderPassState, resourceRegistry);
+
+    if (gfxEncoder) {
+        gfxEncoder->SetViewport(vp);
+        gfxEncoder->PopDebugGroup();
+        gfxEncoder->EndEncoding();
+
+        // XXX Non-Hgi tasks expect default FB. Remove once all tasks use Hgi.
+        glBindFramebuffer(GL_FRAMEBUFFER, fb);
     }
 }
 
@@ -113,7 +157,48 @@ HdSt_RenderPass::_MarkCollectionDirty()
 }
 
 void
-HdSt_RenderPass::_PrepareCommandBuffer()
+HdSt_RenderPass::_PrepareDrawItems(TfTokenVector const& renderTags)
+{
+    HD_TRACE_FUNCTION();
+    GLF_GROUP_FUNCTION();
+
+    HdChangeTracker const &tracker = GetRenderIndex()->GetChangeTracker();
+    HdRprimCollection const &collection = GetRprimCollection();
+
+    const int collectionVersion =
+        tracker.GetCollectionVersion(collection.GetName());
+
+    const int renderTagVersion =
+        tracker.GetRenderTagVersion();
+
+    const bool collectionChanged = _collectionChanged ||
+        (_collectionVersion != collectionVersion);
+
+    const bool renderTagsChanged = _renderTagVersion != renderTagVersion;
+
+    if (collectionChanged || renderTagsChanged) {
+        HD_PERF_COUNTER_INCR(HdPerfTokens->collectionsRefreshed);
+        TF_DEBUG(HD_COLLECTION_CHANGED).Msg("CollectionChanged: %s "
+                                            "(repr = %s)"
+                                            "version: %d -> %d\n", 
+                                             collection.GetName().GetText(),
+                                             collection.GetReprSelector().GetText(),
+                                             _collectionVersion,
+                                             collectionVersion);
+
+        _drawItems = GetRenderIndex()->GetDrawItems(collection, renderTags);
+        _drawItemCount = _drawItems.size();
+        _drawItemsChanged = true;
+
+        _collectionVersion = collectionVersion;
+        _collectionChanged = false;
+
+        _renderTagVersion = renderTagVersion;
+    }
+}
+
+void
+HdSt_RenderPass::_PrepareCommandBuffer(TfTokenVector const& renderTags)
 {
     HD_TRACE_FUNCTION();
     GLF_GROUP_FUNCTION();
@@ -125,53 +210,27 @@ HdSt_RenderPass::_PrepareCommandBuffer()
     // so iterate over each prim, cull it and schedule it to be drawn.
 
     HdChangeTracker const &tracker = GetRenderIndex()->GetChangeTracker();
-    HdRprimCollection const &collection = GetRprimCollection();
-
-    const int collectionVersion =
-        tracker.GetCollectionVersion(collection.GetName());
-
     const int batchVersion = tracker.GetBatchVersion();
 
-    const bool collectionChanged = _collectionChanged ||
-        (_collectionVersion != collectionVersion);
+    // It is optional for a render task to call RenderPass::Prepare() to
+    // update the drawItems during the prepare phase. We ensure our drawItems
+    // are always up-to-date before building the command buffers.
+    _PrepareDrawItems(renderTags);
 
-    // Now either the collection is dirty or culling needs to be applied.
-    if (collectionChanged) {
-        HD_PERF_COUNTER_INCR(HdPerfTokens->collectionsRefreshed);
-        TF_DEBUG(HD_COLLECTION_CHANGED).Msg("CollectionChanged: %s "
-                                            "(repr = %s)"
-                                            "version: %d -> %d\n", 
-                                             collection.GetName().GetText(),
-                                             collection.GetReprSelector().GetText(),
-                                             _collectionVersion,
-                                             collectionVersion);
+    // Rebuild draw batches based on new draw items
+    if (_drawItemsChanged) {
+        _cmdBuffer.SwapDrawItems(
+            // Downcast the HdDrawItem entries to HdStDrawItems:
+            reinterpret_cast<std::vector<HdStDrawItem const*>*>(&_drawItems),
+            batchVersion);
 
-        HdRenderIndex::HdDrawItemView items = 
-            GetRenderIndex()->GetDrawItems(collection);
-
-        // This loop will extract the tags and bucket the geometry in 
-        // the different command buffers.
-        size_t itemCount = 0;
-        _cmdBuffers.clear();
-        for (HdRenderIndex::HdDrawItemView::iterator it = items.begin();
-                                                    it != items.end(); it++ ) {
-            _cmdBuffers[it->first].SwapDrawItems(
-                // Downcast the HdDrawItem entries to HdStDrawItems:
-                reinterpret_cast<std::vector<HdStDrawItem const*>*>(&it->second),
-                batchVersion);
-            itemCount += _cmdBuffers[it->first].GetTotalSize();
-        }
-
-        _collectionVersion = collectionVersion;
-        _collectionChanged = false;
+        _drawItemsChanged = false;
+        size_t itemCount = _cmdBuffer.GetTotalSize();
         HD_PERF_COUNTER_SET(HdTokens->totalItemCount, itemCount);
     } else {
         // validate command buffer to not include expired drawItems,
         // which could be produced by migrating BARs at the new repr creation.
-        for (_HdStCommandBufferMap::iterator it  = _cmdBuffers.begin(); 
-                                           it != _cmdBuffers.end(); it++) {
-            it->second.RebuildDrawBatchesIfNeeded(batchVersion);
-        }
+        _cmdBuffer.RebuildDrawBatchesIfNeeded(batchVersion);
     }
 
     // -------------------------------------------------------------------
@@ -184,10 +243,8 @@ HdSt_RenderPass::_PrepareCommandBuffer()
         _useTinyPrimCulling = renderDelegate->GetRenderSetting<bool>(
             HdStRenderSettingsTokens->enableTinyPrimCulling, false);
     }
-    for (_HdStCommandBufferMap::iterator it = _cmdBuffers.begin();
-            it != _cmdBuffers.end(); ++it) {
-        it->second.SetEnableTinyPrimCulling(_useTinyPrimCulling);
-    }
+
+    _cmdBuffer.SetEnableTinyPrimCulling(_useTinyPrimCulling);
 }
 
 void
@@ -201,7 +258,7 @@ HdSt_RenderPass::_Cull(
     HdChangeTracker const &tracker = GetRenderIndex()->GetChangeTracker();
 
     const bool 
-       skipCulling = TfDebug::IsEnabled(HD_DISABLE_FRUSTUM_CULLING) ||
+       skipCulling = TfDebug::IsEnabled(HDST_DISABLE_FRUSTUM_CULLING) ||
            (caps.multiDrawIndirectEnabled
                && HdSt_IndirectDrawBatch::IsEnabledGPUFrustumCulling());
     bool freezeCulling = TfDebug::IsEnabled(HD_FREEZE_CULL_FRUSTUM);
@@ -209,28 +266,19 @@ HdSt_RenderPass::_Cull(
     if(skipCulling) {
         // Since culling state is stored across renders,
         // we need to update all items visible state
-        for (_HdStCommandBufferMap::iterator it = _cmdBuffers.begin(); 
-                                           it != _cmdBuffers.end(); it++) {
-            it->second.SyncDrawItemVisibility(tracker.GetVisibilityChangeCount());
-        }
+        _cmdBuffer.SyncDrawItemVisibility(tracker.GetVisibilityChangeCount());
 
         TF_DEBUG(HD_DRAWITEMS_CULLED).Msg("CULLED: skipped\n");
     }
     else {
         if (!freezeCulling) {
             // Re-cull the command buffer. 
-            for (_HdStCommandBufferMap::iterator it  = _cmdBuffers.begin(); 
-                 it != _cmdBuffers.end(); it++) {
-                it->second.FrustumCull(renderPassState->GetCullMatrix());
-            }
+            _cmdBuffer.FrustumCull(renderPassState->GetCullMatrix());
         }
 
         if (TfDebug::IsEnabled(HD_DRAWITEMS_CULLED)) {
-            for (_HdStCommandBufferMap::iterator it  = _cmdBuffers.begin(); 
-                 it != _cmdBuffers.end(); it++) {
-                TF_DEBUG(HD_DRAWITEMS_CULLED).Msg("CULLED: %zu drawItems\n", 
-                                                  it->second.GetCulledSize());
-            }
+            TF_DEBUG(HD_DRAWITEMS_CULLED).Msg("CULLED: %zu drawItems\n",
+                                              _cmdBuffer.GetCulledSize());
         }
     }
 }

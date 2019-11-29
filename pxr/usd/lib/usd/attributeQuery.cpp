@@ -43,16 +43,8 @@ UsdAttributeQuery::UsdAttributeQuery(
 
 UsdAttributeQuery::UsdAttributeQuery(
     const UsdPrim& prim, const TfToken& attrName)
+    : UsdAttributeQuery(prim.GetAttribute(attrName))
 {
-    UsdAttribute attr = prim.GetAttribute(attrName);
-    if (!attr) {
-        TF_CODING_ERROR(
-            "Invalid attribute '%s' on prim <%s>",
-            attrName.GetText(), prim.GetPath().GetString().c_str());
-        return;
-    }
-
-    _Initialize(attr);
 }
 
 std::vector<UsdAttributeQuery>
@@ -77,13 +69,10 @@ UsdAttributeQuery::_Initialize(const UsdAttribute& attr)
 {
     TRACE_FUNCTION();
 
-    if (!attr) {
-        TF_CODING_ERROR("Invalid attribute");
-        return;
+    if (attr) {
+        const UsdStage* stage = attr._GetStage();
+        stage->_GetResolveInfo(attr, &_resolveInfo);
     }
-
-    const UsdStage* stage = attr._GetStage();
-    stage->_GetResolveInfo(attr, &_resolveInfo);
 
     _attr = attr;
 }
@@ -103,51 +92,11 @@ UsdAttributeQuery::_Get(T* value, UsdTimeCode time) const
         _resolveInfo, time, _attr, value);
 }
 
-template <>
-USD_API
-bool
-UsdAttributeQuery::_Get(VtArray<SdfAssetPath>* assetPaths, 
-                        UsdTimeCode time) const
-{
-    auto stage = _attr._GetStage();
-
-    if (stage->_GetValueFromResolveInfo(_resolveInfo, time, _attr, assetPaths)){
-        stage->_MakeResolvedAssetPaths(time, _attr, assetPaths->data(), 
-                                       assetPaths->size());
-        return true;
-    }
-
-    return false;
-}
-
-
-template <>
-USD_API
-bool
-UsdAttributeQuery::_Get(SdfAssetPath* assetPath, UsdTimeCode time) const
-{
-    auto stage = _attr._GetStage();
-
-    if (stage->_GetValueFromResolveInfo(_resolveInfo, time, _attr, assetPath)) {
-        stage->_MakeResolvedAssetPaths(time, _attr, assetPath, 1);
-        return true;
-    }
-
-    return false;
-}
-
 bool 
 UsdAttributeQuery::Get(VtValue* value, UsdTimeCode time) const
 {
-    auto stage = _attr._GetStage();
-    bool foundValue = stage->_GetValueFromResolveInfo(_resolveInfo, time, 
-                                                      _attr, value);
-
-    if (foundValue && value) {
-        stage->_MakeResolvedAssetPaths(time, _attr, value);
-    }
-
-    return foundValue;
+    return _attr._GetStage()->_GetValueFromResolveInfo(
+        _resolveInfo, time, _attr, value);
 }
 
 bool 

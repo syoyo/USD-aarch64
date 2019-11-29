@@ -34,6 +34,7 @@
 
 #include "pxr/base/trace/trace.h"
 #include "pxr/base/tf/atomicOfstreamWrapper.h"
+#include "pxr/base/tf/envSetting.h"
 #include "pxr/base/tf/fileUtils.h"
 #include "pxr/base/tf/registryManager.h"
 #include "pxr/base/tf/staticData.h"
@@ -47,6 +48,11 @@ using std::string;
 PXR_NAMESPACE_OPEN_SCOPE
 
 TF_DEFINE_PUBLIC_TOKENS(SdfTextFileFormatTokens, SDF_TEXT_FILE_FORMAT_TOKENS);
+
+TF_DEFINE_ENV_SETTING(
+    SDF_TEXTFILE_SIZE_WARNING_MB, 0,
+    "Warn when reading a text file larger than this number of MB "
+    "(no warnings if set to 0)");
 
 PXR_NAMESPACE_CLOSE_SCOPE
 
@@ -157,6 +163,15 @@ SdfTextFileFormat::Read(
         return false;
     }
 
+    const int fileSizeWarning = TfGetEnvSetting(SDF_TEXTFILE_SIZE_WARNING_MB);
+    const size_t toMB = 1048576;
+
+    if (fileSizeWarning > 0 && asset->GetSize() > (fileSizeWarning * toMB)) {
+        TF_WARN("Performance warning: reading %lu MB text-based layer <%s>.",
+                asset->GetSize() / toMB,
+                resolvedPath.c_str());
+    }
+
     SdfAbstractDataRefPtr data = InitData(layer->GetFileFormatArguments());
     if (!Sdf_ParseMenva(
             resolvedPath, asset, GetFormatId(), GetVersionString(), 
@@ -264,7 +279,7 @@ _WriteLayerToMenva(
     string headerStr = header.str();
     if (!headerStr.empty()) {
         _Write(out, 0, "(\n");
-        _Write(out, 0, headerStr.c_str());
+        _Write(out, 0, "%s", headerStr.c_str());
         _Write(out, 0, ")\n");
     }
 
@@ -384,12 +399,6 @@ SdfTextFileFormat::WriteToStream(
 
 bool
 SdfTextFileFormat::_ShouldSkipAnonymousReload() const
-{
-    return false;
-}
-
-bool 
-SdfTextFileFormat::_IsStreamingLayer(const SdfLayer& layer) const
 {
     return false;
 }

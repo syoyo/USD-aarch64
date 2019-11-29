@@ -33,7 +33,7 @@
 #include "gusd/stageOpts.h"
 #include "gusd/USD_Utils.h"
 
-#include <pxr/pxr.h>
+#include "pxr/pxr.h"
 #include "pxr/usd/sdf/layer.h"
 #include "pxr/usd/usd/stage.h"
 
@@ -75,7 +75,7 @@ public:
 
     /// \section GusdStageCache_Reloading Reloading
     ///
-    /// Stages and layers may be reloaded during an active sessions, but it's
+    /// Stages and layers may be reloaded during an active session, but it's
     /// important to understand the full implications of doing so.
     /// When a layer is reloaded, change notifications are sent to any stages
     /// referencing that layer, causing those stages to recompose, if necessary.
@@ -119,7 +119,7 @@ private:
 
 
 /// Helper for reading from a GusdStageCache.
-/// Cache readers can both infd existing stages on the cache,
+/// Cache readers can both open existing stages on the cache,
 /// as well as cause additional stages to be inserted into the cache.
 /// Cache readers cannot clear out any existing stages or mutate
 /// auxiliary data caches.
@@ -193,7 +193,7 @@ public:
     /// performance for certain access patterns, such as if many separate prims
     /// are being queried from the cache with different stage edits.
     ///
-    /// \subection Primitive Encapsulation
+    /// \subsection Primitive Encapsulation
     ///
     /// Because primitives are masked to include a subset of a stage,
     /// there is an expectation that the caller follows _encapsulation_ rules.
@@ -204,7 +204,7 @@ public:
     /// to that external prim must be discoverable using either relationships
     /// or attribute connections.
     /// Following those encapsulation rules, neither _siblings_ of the prim
-    /// being requested, or other prims in separate branches of the stage
+    /// being requested, nor other prims in separate branches of the stage
     /// are guaranteed to be loaded. Any attempt to reach other prims that
     /// can't be discovered using the above rules for discovering dependencies
     /// may either fail or introduce non-deterministic behavior.
@@ -213,6 +213,10 @@ public:
     /// If \p path and \p primPath are both valid, and either a stage load
     /// error occurs or no prim can be found, errors are reported on the
     /// currently scoped error manager at a severity of \p sev.
+    /// If \p primPath is equal to 'defaultPrim', the stage's defaultPrim
+    /// is returned.
+    /// If \p primPath is equal to '/', the entire stage is loaded,
+    /// and the pseudo-root is returned.
     PrimStagePair
     GetPrim(const UT_StringRef& path,
             const SdfPath& primPath,
@@ -228,6 +232,11 @@ public:
     /// \p sev. If \p sev is less than UT_ERROR_ABORT, prim loading will
     /// continue even when errors occur for some prims. Otherwise, loading
     /// aborts upon the first error.
+    /// If a path in \p primPaths is equal to `defaultPrim`, the stage's
+    /// defaultPrim will be returned for that element.
+    /// If a path in \p primPaths is equal to `/` -- I.e., the absolute root --
+    /// then the full stage of the corresponding element is loaded, and the
+    /// pseudo-root is returned.
     bool
     GetPrims(const GusdDefaultArray<UT_StringHolder>& filePaths,
              const UT_Array<SdfPath>& primPaths,
@@ -237,9 +246,13 @@ public:
              UT_ErrorSeverity sev=UT_ERROR_ABORT);
 
     /// Get a prim from the cache, given a prim path that may contain
-    /// variant selections. This is a convenience for the common case
+    /// variant selections. This is a convenience method for the common case
     /// of accessing a prim given parameters for just a file path and
     /// prim path.
+    /// If \p primPath is equal to 'defaultPrim', the stage's defaultPrim
+    /// is returned.
+    /// If \p primPath is equal to `/`, the entire stage is loaded,
+    /// and the pseudo-root is returned.
     /// @{
     PrimStagePair
     GetPrimWithVariants(const UT_StringRef& path,
@@ -300,7 +313,7 @@ public:
     /// Insert a stage into our cache. The lifetime of this stage is not
     /// fully controlled by this cache. The cache is just a holder for the
     /// stage for as long as the gusd library is allowed access to it (until
-    /// it is destroyed by the external owner, which must then call Clear
+    /// it is destroyed by the external owner, which must then call Clear()
     /// with the same path.
     void    InsertStage(UsdStageRefPtr &stage,
                         const UT_StringRef& path,
@@ -317,7 +330,7 @@ public:
     /// (see: \ref GusdStageCacheReader::GetMicroNode), then that micro
     /// node, and any OP_Node instances that reference it, are dirtied.
     /// This means that any nodes whose cook is based on data from a cached
-    /// stage will properly update in response to Clear/Reload actions.
+    /// stage will properly update in response to Clear()/Reload() actions.
     ///
     /// \warn Dirty state propagation is not thread safe, and should only be
     /// called at a safe point on the main thread, such as through a callback

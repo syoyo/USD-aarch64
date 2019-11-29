@@ -26,6 +26,7 @@
 #include "pxr/imaging/hdSt/bufferArrayRangeGL.h"
 #include "pxr/imaging/hdSt/commandBuffer.h"
 #include "pxr/imaging/hdSt/cullingShaderKey.h"
+#include "pxr/imaging/hdSt/debugCodes.h"
 #include "pxr/imaging/hdSt/drawItemInstance.h"
 #include "pxr/imaging/hdSt/geometricShader.h"
 #include "pxr/imaging/hdSt/glslProgram.h"
@@ -184,7 +185,7 @@ HdSt_IndirectDrawBatch::IsEnabledGPUFrustumCulling()
         TfGetEnvSetting(HD_ENABLE_GPU_FRUSTUM_CULLING) &&
         (caps.explicitUniformLocation);
     return isEnabledGPUFrustumCulling &&
-       !TfDebug::IsEnabled(HD_DISABLE_FRUSTUM_CULLING);
+       !TfDebug::IsEnabled(HDST_DISABLE_FRUSTUM_CULLING);
 }
 
 /* static */
@@ -1019,7 +1020,7 @@ HdSt_IndirectDrawBatch::PrepareDraw(
         GlfContextCaps const &caps = GlfContextCaps::GetInstance();
         if (gpuCulling) {
             if (caps.directStateAccessEnabled) {
-                bufferData = glMapNamedBufferEXT(
+                bufferData = glMapNamedBuffer(
                     _dispatchBuffer->GetEntireResource()->GetId(),
                     GL_READ_ONLY);
             } else {
@@ -1061,7 +1062,8 @@ HdSt_IndirectDrawBatch::PrepareDraw(
 
         if (gpuCulling) {
             if (caps.directStateAccessEnabled) {
-                glUnmapNamedBufferEXT(_dispatchBuffer->GetEntireResource()->GetId());
+                glUnmapNamedBuffer(
+                        _dispatchBuffer->GetEntireResource()->GetId());
             } else {
                 glBindBuffer(GL_ARRAY_BUFFER,
                              _dispatchBuffer->GetEntireResource()->GetId());
@@ -1578,8 +1580,8 @@ HdSt_IndirectDrawBatch::_BeginGPUCountVisibleInstances(
         GLint count = 0;
         GlfContextCaps const &caps = GlfContextCaps::GetInstance();
         if (caps.directStateAccessEnabled) {
-            glNamedBufferSubDataEXT(_resultBuffer->GetId(), 0,
-                                    sizeof(count), &count);
+            glNamedBufferSubData(_resultBuffer->GetId(), 0,
+                                 sizeof(count), &count);
         } else {
             glBindBuffer(GL_ARRAY_BUFFER, _resultBuffer->GetId());
             glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(count), &count);
@@ -1614,8 +1616,8 @@ HdSt_IndirectDrawBatch::_EndGPUCountVisibleInstances(GLsync resultSync, size_t *
         GLint count = 0;
         GlfContextCaps const &caps = GlfContextCaps::GetInstance();
         if (caps.directStateAccessEnabled) {
-            glGetNamedBufferSubDataEXT(_resultBuffer->GetId(), 0,
-                                       sizeof(count), &count);
+            glGetNamedBufferSubData(_resultBuffer->GetId(), 0,
+                                    sizeof(count), &count);
         } else {
             glBindBuffer(GL_ARRAY_BUFFER, _resultBuffer->GetId());
             glGetBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(count), &count);

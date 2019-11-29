@@ -360,14 +360,14 @@ void
 HdUnitTestDelegate::HideRprim(SdfPath const& id) 
 {
     _hiddenRprims.insert(id);
-    GetRenderIndex().GetChangeTracker().MarkAllCollectionsDirty();
+    MarkRprimDirty(id, HdChangeTracker::DirtyRenderTag);
 }
 
 void
 HdUnitTestDelegate::UnhideRprim(SdfPath const& id) 
 {
     _hiddenRprims.erase(id);
-    GetRenderIndex().GetChangeTracker().MarkAllCollectionsDirty();
+    MarkRprimDirty(id, HdChangeTracker::DirtyRenderTag);
 }
 
 void
@@ -532,7 +532,6 @@ HdUnitTestDelegate::UpdateCamera(SdfPath const &id,
 {
     _cameras[id].params[key] = value;
    HdChangeTracker& tracker = GetRenderIndex().GetChangeTracker();
-   // XXX: we could be more granular here if the tokens weren't in hdx.
    tracker.MarkSprimDirty(id, HdChangeTracker::AllDirty);
 }
 
@@ -561,22 +560,22 @@ HdUnitTestDelegate::GetRenderTag(SdfPath const& id)
     HD_TRACE_FUNCTION();
 
     if (_hiddenRprims.find(id) != _hiddenRprims.end()) {
-        return HdTokens->hidden;
+        return HdRenderTagTokens->hidden;
     }
 
     if (_Mesh *mesh = TfMapLookupPtr(_meshes, id)) {
         if (mesh->guide) {
-            return HdTokens->guide;
+            return HdRenderTagTokens->guide;
         } else {
-            return HdTokens->geometry;
+            return HdRenderTagTokens->geometry;
         }
     } else if (_curves.count(id) > 0) {
-        return HdTokens->geometry;
+        return HdRenderTagTokens->geometry;
     } else if (_points.count(id) > 0) {
-        return HdTokens->geometry;
+        return HdRenderTagTokens->geometry;
     }
 
-    return HdTokens->hidden;
+    return HdRenderTagTokens->hidden;
 }
 
 /*virtual*/
@@ -753,11 +752,22 @@ HdUnitTestDelegate::GetMaterialParamValue(SdfPath const &materialId,
                                           TfToken const &paramName)
 {
     if (_MaterialHydra *material = TfMapLookupPtr(_materialsHydra, materialId)){
-        TF_FOR_ALL(paramIt, material->params) {
-            if (paramIt->GetName() == paramName)
-                return paramIt->GetFallbackValue();
+        for (HdMaterialParam const& param : material->params) {
+            if (param.name == paramName)
+                return param.fallbackValue;
         }
     }
+    return VtValue();
+}
+
+/*virtual*/
+VtValue
+HdUnitTestDelegate::GetCameraParamValue(SdfPath const &cameraId, 
+                                        TfToken const &paramName)
+{
+    if (_cameras.find(cameraId) != _cameras.end()) {
+        return _cameras[cameraId].params[paramName];
+    } 
     return VtValue();
 }
 
@@ -829,8 +839,6 @@ HdUnitTestDelegate::Get(SdfPath const& id, TfToken const& key)
     // camera, light, tasks
     if (_tasks.find(id) != _tasks.end()) {
         return _tasks[id].params[key];
-    } else if (_cameras.find(id) != _cameras.end()) {
-        return _cameras[id].params[key];
     } else if (_lights.find(id) != _lights.end()) {
         return _lights[id].params[key];
     }

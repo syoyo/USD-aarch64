@@ -85,6 +85,7 @@ void wrapUsdContrivedTokens()
     _AddToken(cls, "cornerIndices", UsdContrivedTokens->cornerIndices);
     _AddToken(cls, "cornerSharpnesses", UsdContrivedTokens->cornerSharpnesses);
     _AddToken(cls, "creaseLengths", UsdContrivedTokens->creaseLengths);
+    _AddToken(cls, "derived", UsdContrivedTokens->derived);
     _AddToken(cls, "double2", UsdContrivedTokens->double2);
     _AddToken(cls, "double2Array", UsdContrivedTokens->double2Array);
     _AddToken(cls, "double3", UsdContrivedTokens->double3);
@@ -134,6 +135,7 @@ void wrapUsdContrivedTokens()
     _AddToken(cls, "myDouble", UsdContrivedTokens->myDouble);
     _AddToken(cls, "myUniformBool", UsdContrivedTokens->myUniformBool);
     _AddToken(cls, "myVaryingToken", UsdContrivedTokens->myVaryingToken);
+    _AddToken(cls, "myVaryingTokenArray", UsdContrivedTokens->myVaryingTokenArray);
     _AddToken(cls, "myVecfArray", UsdContrivedTokens->myVecfArray);
     _AddToken(cls, "namespacedProperty", UsdContrivedTokens->namespacedProperty);
     _AddToken(cls, "newToken", UsdContrivedTokens->newToken);
@@ -158,13 +160,17 @@ void wrapUsdContrivedTokens()
     _AddToken(cls, "quathArray", UsdContrivedTokens->quathArray);
     _AddToken(cls, "relCanShareApiNameWithAttr", UsdContrivedTokens->relCanShareApiNameWithAttr);
     _AddToken(cls, "riStatementsAttributesUserGofur_GeomOnHairdensity", UsdContrivedTokens->riStatementsAttributesUserGofur_GeomOnHairdensity);
+    _AddToken(cls, "schemaToken1", UsdContrivedTokens->schemaToken1);
+    _AddToken(cls, "schemaToken2", UsdContrivedTokens->schemaToken2);
     _AddToken(cls, "string", UsdContrivedTokens->string);
     _AddToken(cls, "stringArray", UsdContrivedTokens->stringArray);
     _AddToken(cls, "temp", UsdContrivedTokens->temp);
+    _AddToken(cls, "test", UsdContrivedTokens->test);
     _AddToken(cls, "testAttrOne", UsdContrivedTokens->testAttrOne);
     _AddToken(cls, "testAttrThree", UsdContrivedTokens->testAttrThree);
     _AddToken(cls, "testAttrTwo", UsdContrivedTokens->testAttrTwo);
     _AddToken(cls, "testingAsset", UsdContrivedTokens->testingAsset);
+    _AddToken(cls, "testo", UsdContrivedTokens->testo);
     _AddToken(cls, "token", UsdContrivedTokens->token);
     _AddToken(cls, "tokenArray", UsdContrivedTokens->tokenArray);
     _AddToken(cls, "transform", UsdContrivedTokens->transform);
@@ -175,7 +181,9 @@ void wrapUsdContrivedTokens()
     _AddToken(cls, "uint64Array", UsdContrivedTokens->uint64Array);
     _AddToken(cls, "uintArray", UsdContrivedTokens->uintArray);
     _AddToken(cls, "variableTokenAllowed1", UsdContrivedTokens->variableTokenAllowed1);
-    _AddToken(cls, "variabletokenAllowed2", UsdContrivedTokens->variabletokenAllowed2);
+    _AddToken(cls, "variableTokenAllowed2", UsdContrivedTokens->variableTokenAllowed2);
+    _AddToken(cls, "variableTokenArrayAllowed1", UsdContrivedTokens->variableTokenArrayAllowed1);
+    _AddToken(cls, "variableTokenArrayAllowed2", UsdContrivedTokens->variableTokenArrayAllowed2);
     _AddToken(cls, "variableTokenDefault", UsdContrivedTokens->variableTokenDefault);
     _AddToken(cls, "vector3d", UsdContrivedTokens->vector3d);
     _AddToken(cls, "vector3dArray", UsdContrivedTokens->vector3dArray);

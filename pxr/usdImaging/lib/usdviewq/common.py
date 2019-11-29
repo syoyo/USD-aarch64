@@ -29,81 +29,6 @@ from constantGroup import ConstantGroup
 
 DEBUG_CLIPPING = "USDVIEWQ_DEBUG_CLIPPING"
 
-class Complexities(ConstantGroup):
-    """The available complexity settings for Usdview."""
-
-    class _Complexity(object):
-        """Class which represents a level of mesh refinement complexity. Each level
-        has a string identifier, a display name, and a float complexity value.
-        """
-
-        def __init__(self, compId, name, value):
-            self._id = compId
-            self._name = name
-            self._value = value
-
-        @property
-        def id(self):
-            return self._id
-
-        @property
-        def name(self):
-            return self._name
-
-        @property
-        def value(self):
-            return self._value
-
-    LOW       = _Complexity("low",      "Low",       1.0)
-    MEDIUM    = _Complexity("medium",   "Medium",    1.1)
-    HIGH      = _Complexity("high",     "High",      1.2)
-    VERY_HIGH = _Complexity("veryhigh", "Very High", 1.3)
-
-    _ordered = (LOW, MEDIUM, HIGH, VERY_HIGH)
-
-    @classmethod
-    def ordered(cls):
-        """Get an tuple of all complexity levels in order."""
-        return Complexities._ordered
-
-    @classmethod
-    def fromId(cls, compId):
-        """Get a complexity from its identifier."""
-        matches = [comp for comp in Complexities if comp.id == compId]
-        if len(matches) == 0:
-            raise ValueError("No complexity with id '{}'".format(compId))
-        return matches[0]
-
-    @classmethod
-    def fromName(cls, name):
-        """Get a complexity from its display name."""
-        matches = [comp for comp in Complexities if comp.name == name]
-        if len(matches) == 0:
-            raise ValueError("No complexity with name '{}'".format(name))
-        return matches[0]
-
-    @classmethod
-    def next(cls, comp):
-        """Get the next highest level of complexity. If already at the highest
-        level, return it.
-        """
-        if comp not in Complexities:
-            raise ValueError("Invalid complexity: {}".format(comp))
-        nextIndex = min(
-            len(Complexities._ordered) - 1,
-            Complexities._ordered.index(comp) + 1)
-        return Complexities._ordered[nextIndex]
-
-    @classmethod
-    def prev(cls, comp):
-        """Get the next lowest level of complexity. If already at the lowest
-        level, return it.
-        """
-        if comp not in Complexities:
-            raise ValueError("Invalid complexity: {}".format(comp))
-        prevIndex = max(0, Complexities._ordered.index(comp) - 1)
-        return Complexities._ordered[prevIndex]
-
 class ClearColors(ConstantGroup):
     """Names of available background colors."""
     BLACK = "Black"
@@ -127,6 +52,13 @@ class UIPrimTypeColors(ConstantGroup):
     NORMAL = QtGui.QBrush(QtGui.QColor(227, 227, 227))
     INSTANCE = UIBaseColors.LIGHT_SKY_BLUE
     MASTER = QtGui.QBrush(QtGui.QColor(118, 136, 217))
+
+class UIPrimTreeColors(ConstantGroup):
+    SELECTED = QtGui.QBrush(QtGui.QColor(189, 155, 84))
+    SELECTED_HOVER = QtGui.QBrush(QtGui.QColor(227, 186, 101))
+    ANCESTOR_OF_SELECTED = QtGui.QBrush(QtGui.QColor(189, 155, 84, 50))
+    ANCESTOR_OF_SELECTED_HOVER = QtGui.QBrush(QtGui.QColor(189, 155, 84, 100))
+    UNSELECTED_HOVER = QtGui.QBrush(QtGui.QColor(70, 70, 70))
 
 class UIPropertyValueSourceColors(ConstantGroup):
     FALLBACK = UIBaseColors.DARK_YELLOW
@@ -152,7 +84,7 @@ class UIFonts(ConstantGroup):
     BOLD.setWeight(QtGui.QFont.Bold)
 
     BOLD_ITALIC = QtGui.QFont()
-    BOLD_ITALIC .setWeight(QtGui.QFont.Bold)
+    BOLD_ITALIC.setWeight(QtGui.QFont.Bold)
     BOLD_ITALIC.setItalic(True)
 
     OVER_PRIM = ITALIC
@@ -163,6 +95,9 @@ class UIFonts(ConstantGroup):
     INHERITED.setPointSize(BASE_POINT_SIZE * 0.8)
     INHERITED.setWeight(QtGui.QFont.Normal)
     INHERITED.setItalic(True)
+
+class KeyboardShortcuts(ConstantGroup):
+    FramingKey = QtCore.Qt.Key_F
 
 class PropertyViewIndex(ConstantGroup):
     TYPE, NAME, VALUE = range(3)
@@ -277,27 +212,42 @@ def PrintWarning(title, description):
     print >> msg, description
     print >> msg, "------------------------------------------------------------"
 
-def GetShortString(prop, frame):
+def GetValueAtFrame(prop, frame):
     if isinstance(prop, Usd.Relationship):
-        val = ", ".join(str(p) for p in prop.GetTargets())
+        return prop.GetTargets()
     elif isinstance(prop, (Usd.Attribute, CustomAttribute)):
-        val = prop.Get(frame)
+        return prop.Get(frame)
     elif isinstance(prop, Sdf.AttributeSpec):
         if frame == Usd.TimeCode.Default():
-            val = prop.default
+            return prop.default
         else:
             numTimeSamples = -1
             if prop.HasInfo('timeSamples'):
                 numTimeSamples = prop.layer.GetNumTimeSamplesForPath(prop.path)
             if numTimeSamples == -1:
-                val = prop.default
+                return prop.default
             elif numTimeSamples == 1:
                 return "1 time sample"
             else:
                 return str(numTimeSamples) + " time samples"
     elif isinstance(prop, Sdf.RelationshipSpec):
+        return prop.targetPathList
+
+    return val
+
+def GetShortStringForValue(prop, val):
+    if isinstance(prop, Usd.Relationship):
+        val = ", ".join(str(p) for p in val)
+    elif isinstance(prop, Sdf.RelationshipSpec):
         return str(prop.targetPathList)
 
+    # If there is no value opinion, we do not want to display anything,
+    # since python 'None' has a different meaning than usda-authored None,
+    # which is how we encode attribute value blocks (which evaluate to 
+    # Sdf.ValueBlock)
+    if val is None:
+        return ''
+    
     from scalarTypes import GetScalarTypeFromAttr
     scalarType, isArray = GetScalarTypeFromAttr(prop)
     result = ''

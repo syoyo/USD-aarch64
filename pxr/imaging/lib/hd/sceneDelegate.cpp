@@ -77,7 +77,7 @@ HdSceneDelegate::IsEnabled(TfToken const& option) const
 TfToken
 HdSceneDelegate::GetRenderTag(SdfPath const& id)
 {
-    return HdTokens->geometry;
+    return HdRenderTagTokens->geometry;
 }
 
 // -----------------------------------------------------------------------//
@@ -123,12 +123,12 @@ HdSceneDelegate::GetTransform(SdfPath const & id)
 size_t
 HdSceneDelegate::SampleTransform(SdfPath const & id,
                                  size_t maxSampleCount,
-                                 float *times,
-                                 GfMatrix4d *samples)
+                                 float *sampleTimes,
+                                 GfMatrix4d *sampleValues)
 {
     if (maxSampleCount > 0) {
-        times[0] = 0;
-        samples[0] = GetTransform(id);
+        sampleTimes[0] = 0.0;
+        sampleValues[0] = GetTransform(id);
         return 1;
     }
     return 0;
@@ -178,14 +178,15 @@ HdSceneDelegate::Get(SdfPath const& id, TfToken const& key)
 
 /*virtual*/
 size_t
-HdSceneDelegate::SamplePrimvar(SdfPath const& id, TfToken const& key,
+HdSceneDelegate::SamplePrimvar(SdfPath const& id, 
+                               TfToken const& key,
                                size_t maxSampleCount,
-                               float *times,
-                               VtValue *samples)
+                               float *sampleTimes,
+                               VtValue *sampleValues)
 {
     if (maxSampleCount > 0) {
-        times[0] = 0;
-        samples[0] = Get(id, key);
+        sampleTimes[0] = 0.0;
+        sampleValues[0] = Get(id, key);
         return 1;
     }
     return 0;
@@ -203,6 +204,18 @@ VtArray<TfToken>
 HdSceneDelegate::GetCategories(SdfPath const& id)
 {
     return VtArray<TfToken>();
+}
+
+std::vector<VtArray<TfToken>>
+HdSceneDelegate::GetInstanceCategories(SdfPath const &instancerId)
+{
+    return std::vector<VtArray<TfToken>>();
+}
+
+HdIdVectorSharedPtr
+HdSceneDelegate::GetCoordSysBindings(SdfPath const& id)
+{
+    return nullptr;
 }
 
 // -----------------------------------------------------------------------//
@@ -228,12 +241,12 @@ HdSceneDelegate::GetInstancerTransform(SdfPath const &instancerId)
 size_t
 HdSceneDelegate::SampleInstancerTransform(SdfPath const &instancerId,
                                           size_t maxSampleCount,
-                                          float *times,
-                                          GfMatrix4d *samples)
+                                          float *sampleTimes,
+                                          GfMatrix4d *sampleValues)
 {
     if (maxSampleCount > 0) {
-        times[0] = 0;
-        samples[0] = GetInstancerTransform(instancerId);
+        sampleTimes[0] = 0.0;
+        sampleValues[0] = GetInstancerTransform(instancerId);
         return 1;
     }
     return 0;
@@ -241,10 +254,10 @@ HdSceneDelegate::SampleInstancerTransform(SdfPath const &instancerId,
 
 /*virtual*/
 SdfPath
-HdSceneDelegate::GetPathForInstanceIndex(const SdfPath &protoPrimPath,
-                                         int instanceIndex,
-                                         int *absoluteInstanceIndex,
-                                         SdfPath * rprimPath,
+HdSceneDelegate::GetPathForInstanceIndex(const SdfPath &protoRprimId,
+                                         int protoIndex,
+                                         int *instancerIndex,
+                                         SdfPath *masterCachePath,
                                          SdfPathVector *instanceContext)
 {
     return SdfPath();
@@ -297,13 +310,6 @@ VtValue
 HdSceneDelegate::GetMaterialResource(SdfPath const &materialId)
 {
     return VtValue();
-}
-
-/*virtual*/
-TfTokenVector 
-HdSceneDelegate::GetMaterialPrimvars(SdfPath const &materialId)
-{
-    return TfTokenVector();
 }
 
 /* virtual */
@@ -360,10 +366,11 @@ HdSceneDelegate::GetLightParamValue(SdfPath const &id,
 // -----------------------------------------------------------------------//
 
 /*virtual*/
-std::vector<GfVec4d>
-HdSceneDelegate::GetClipPlanes(SdfPath const& cameraId)
+VtValue 
+HdSceneDelegate::GetCameraParamValue(SdfPath const &cameraId, 
+                                     TfToken const &paramName) 
 {
-    return std::vector<GfVec4d>();
+    return VtValue();
 }
 
 // -----------------------------------------------------------------------//
@@ -447,6 +454,22 @@ HdSceneDelegate::GetExtComputationKernel(SdfPath const& id)
 {
     return std::string();
 }
+
+
+// -----------------------------------------------------------------------//
+/// \name Task Aspects
+// -----------------------------------------------------------------------//
+/*virtual*/
+TfTokenVector HdSceneDelegate::GetTaskRenderTags(SdfPath const& taskId)
+{
+    // While the empty vector can mean no filtering and let all tags
+    // pass.  If any task has a non-empty render tags, the empty tags
+    // means that the task isn't interested in any prims at all.
+    // So the empty set use for no filtering should be limited
+    // to tests.
+    return TfTokenVector();
+}
+
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

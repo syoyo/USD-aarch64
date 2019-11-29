@@ -1135,6 +1135,7 @@ function(_pxr_library NAME)
     #
 
     # Where do we install to?
+    _get_install_dir("include" headerInstallDir)
     _get_install_dir("include/${PXR_PREFIX}/${NAME}" headerInstallPrefix)
     _get_install_dir("lib" libInstallPrefix)
     if(isPlugin)
@@ -1190,8 +1191,8 @@ function(_pxr_library NAME)
     # these libraries are not separately loadable at runtime. In these cases,
     # we don't need to specify the library's location, so we leave
     # pluginToLibraryPath empty.
-    if(";${PXR_CORE_LIBS};" MATCHES ";${NAME};")
-        if (NOT _building_monolithic AND NOT args_TYPE STREQUAL "STATIC")
+    if(NOT args_TYPE STREQUAL "STATIC")
+   	if(NOT (";${PXR_CORE_LIBS};" MATCHES ";${NAME};" AND _building_monolithic))
             file(RELATIVE_PATH
                 pluginToLibraryPath
                 ${CMAKE_INSTALL_PREFIX}/${pluginInstallPrefix}/${NAME}
@@ -1247,13 +1248,29 @@ function(_pxr_library NAME)
         PREFIX
             ${PXR_PREFIX}
     )
-    target_include_directories(${NAME}
-        PRIVATE
-            "${CMAKE_BINARY_DIR}/include"
-            "${CMAKE_BINARY_DIR}/${PXR_INSTALL_SUBDIR}/include"
-        PUBLIC
-            ${args_INCLUDE_DIRS}
-    )
+
+    # XXX: Versions of CMake 2.8.11 and earlier complain about
+    # INTERFACE_INCLUDE_DIRECTORIES containing a relative path if we include
+    # the INTERFACE directory here, so only do so for more recent versions.
+    if(${CMAKE_VERSION} VERSION_GREATER 2.8.11.2)
+        target_include_directories(${NAME}
+            PRIVATE
+                "${CMAKE_BINARY_DIR}/include"
+                "${CMAKE_BINARY_DIR}/${PXR_INSTALL_SUBDIR}/include"
+            PUBLIC
+                ${args_INCLUDE_DIRS}
+            INTERFACE
+                $<INSTALL_INTERFACE:${headerInstallDir}>
+        )
+    else()
+        target_include_directories(${NAME}
+            PRIVATE
+                "${CMAKE_BINARY_DIR}/include"
+                "${CMAKE_BINARY_DIR}/${PXR_INSTALL_SUBDIR}/include"
+            PUBLIC
+                ${args_INCLUDE_DIRS}
+        )
+    endif()
 
     # XXX -- May want some plugins to be baked into monolithic.
     _pxr_target_link_libraries(${NAME} ${args_LIBRARIES})
@@ -1279,7 +1296,23 @@ function(_pxr_library NAME)
             )
         endif()
     else()
-        if(BUILD_SHARED_LIBS)
+        # Do not include plugins libs in externally linkable targets
+        if(isPlugin)
+            install(
+                TARGETS ${NAME}
+                LIBRARY DESTINATION ${libInstallPrefix}
+                ARCHIVE DESTINATION ${libInstallPrefix}
+                RUNTIME DESTINATION ${libInstallPrefix}
+                PUBLIC_HEADER DESTINATION ${headerInstallPrefix}
+            )
+            if(WIN32)
+                install(
+                    FILES $<TARGET_PDB_FILE:${NAME}>
+                    DESTINATION ${libInstallPrefix}
+                    OPTIONAL
+                )
+            endif()
+        elseif(BUILD_SHARED_LIBS)
             install(
                 TARGETS ${NAME}
                 EXPORT pxrTargets
@@ -1306,11 +1339,13 @@ function(_pxr_library NAME)
                 PUBLIC_HEADER DESTINATION ${headerInstallPrefix}
             )
         endif()
-
-        export(TARGETS ${NAME}
-            APPEND
-            FILE "${PROJECT_BINARY_DIR}/pxrTargets.cmake"
-        )
+        
+        if(NOT isPlugin)
+            export(TARGETS ${NAME}
+                APPEND
+                FILE "${PROJECT_BINARY_DIR}/pxrTargets.cmake"
+            )
+        endif()
 
     endif()
 

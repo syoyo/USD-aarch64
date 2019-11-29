@@ -255,7 +255,7 @@ HdEmbreeRenderDelegate::GetDefaultAovDescriptor(TfToken const& name) const
     } else if (name == HdAovTokens->primId ||
                name == HdAovTokens->instanceId ||
                name == HdAovTokens->elementId) {
-        return HdAovDescriptor(HdFormatInt32, false, VtValue(0));
+        return HdAovDescriptor(HdFormatInt32, false, VtValue(-1));
     } else {
         HdParsedAovToken aovId(name);
         if (aovId.isPrimvar) {
@@ -265,6 +265,35 @@ HdEmbreeRenderDelegate::GetDefaultAovDescriptor(TfToken const& name) const
     }
 
     return HdAovDescriptor();
+}
+
+VtDictionary 
+HdEmbreeRenderDelegate::GetRenderStats() const
+{
+    VtDictionary stats;
+    stats[HdPerfTokens->numCompletedSamples.GetString()] = 
+        _renderer.GetCompletedSamples();
+    return stats;
+}
+
+bool
+HdEmbreeRenderDelegate::IsPauseSupported() const
+{
+    return true;
+}
+
+bool
+HdEmbreeRenderDelegate::Pause()
+{
+    _renderThread.PauseRender();
+    return true;
+}
+
+bool
+HdEmbreeRenderDelegate::Resume()
+{
+    _renderThread.ResumeRender();
+    return true;
 }
 
 HdRenderPassSharedPtr

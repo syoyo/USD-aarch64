@@ -92,18 +92,18 @@ public:
     enum _ImmortalTag { Immortal };
 
     /// Create the empty token, containing the empty string.
-    TfToken() {}
+    constexpr TfToken() noexcept {}
 
     /// Copy constructor.
-    TfToken(TfToken const& rhs) : _rep(rhs._rep) { _AddRef(); }
+    TfToken(TfToken const& rhs) noexcept : _rep(rhs._rep) { _AddRef(); }
 
     /// Move constructor.
-    TfToken(TfToken && rhs) : _rep(rhs._rep) {
+    TfToken(TfToken && rhs) noexcept : _rep(rhs._rep) {
         rhs._rep = TfPointerAndBits<const _Rep>();
     }
     
     /// Copy assignment.
-    TfToken& operator= (TfToken const& rhs) {
+    TfToken& operator= (TfToken const& rhs) noexcept {
         if (&rhs != this) {
             rhs._AddRef();
             _RemoveRef();
@@ -113,7 +113,7 @@ public:
     }
 
     /// Move assignment.
-    TfToken& operator= (TfToken && rhs) {
+    TfToken& operator= (TfToken && rhs) noexcept {
         if (&rhs != this) {
             _RemoveRef();
             _rep = rhs._rep;
@@ -271,13 +271,25 @@ public:
 
     /// Less-than operator that compares tokenized strings lexicographically.
     /// Allows \c TfToken to be used in \c std::set
-    inline bool operator<(TfToken const& o) const {
-        return GetString() < o.GetString();
+    inline bool operator<(TfToken const& r) const {
+        auto ll = _rep.GetLiteral(), rl = r._rep.GetLiteral();
+        if (!ll) {
+            return rl;
+        }
+        if (!rl || ll == rl) {
+            return false;
+        }
+        auto lrep = _rep.Get(), rrep = r._rep.Get();
+        uint64_t lcc = lrep->_compareCode, rcc = rrep->_compareCode;
+        if (lcc < rcc) {
+            return true;
+        }
+        return lcc == rcc && lrep->_str < rrep->_str;
     }
 
     /// Greater-than operator that compares tokenized strings lexicographically.
     inline bool operator>(TfToken const& o) const {
-        return GetString() > o.GetString();
+        return o < *this;
     }
 
     /// Greater-than-or-equal operator that compares tokenized strings
@@ -365,12 +377,14 @@ private:
         _Rep(_Rep const &rhs) : _str(rhs._str), 
                                 _cstr(rhs._str.c_str() != rhs._cstr ? 
                                           rhs._cstr : _str.c_str()),
+                                _compareCode(rhs._compareCode),
                                 _refCount(rhs._refCount.load()),
                                 _isCounted(rhs._isCounted), 
                                 _setNum(rhs._setNum) {}
         _Rep& operator=(_Rep const &rhs) {
             _str = rhs._str;
             _cstr = (rhs._str.c_str() != rhs._cstr ? rhs._cstr : _str.c_str());
+            _compareCode = rhs._compareCode;
             _refCount = rhs._refCount.load();
             _isCounted = rhs._isCounted;
             _setNum = rhs._setNum;
@@ -387,6 +401,7 @@ private:
 
         std::string _str;
         char const *_cstr;
+        mutable uint64_t _compareCode;
         mutable std::atomic_int _refCount;
         mutable bool _isCounted;
         mutable unsigned char _setNum;

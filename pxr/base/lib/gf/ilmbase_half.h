@@ -102,8 +102,10 @@ class half
     // Constructors
     //-------------
 
-    half ();			// no initialization
+    half () = default;			// no initialization
     half (float f);
+
+    constexpr half (const half& h) = default;
 
 
     //--------------------
@@ -124,7 +126,7 @@ class half
     // Assignment
     //-----------
 
-    half &		operator = (half  h);
+    half &		operator = (const half &) = default;
     half &		operator = (float f);
 
     half &		operator += (half  h);
@@ -283,6 +285,10 @@ GF_API void        printBits   (char  c[35], float f);
 #define HALF_DIG	2		// Number of base 10 digits that
 					// can be represented without change
 
+#define HALF_DECIMAL_DIG	5	// Number of base-10 digits that are
+					// necessary to uniquely represent all
+					// distinct values
+
 #define HALF_RADIX	2		// Base of the exponent
 
 #define HALF_MIN_EXP	-13		// Minimum negative integer such that
@@ -414,17 +420,6 @@ GF_API void        printBits   (char  c[35], float f);
 //	done using only simple table lookups.
 //
 //---------------------------------------------------------------------------
-
-
-//--------------------
-// Simple constructors
-//--------------------
-
-inline
-half::half ()
-{
-    // no initialization
-}
 
 
 //----------------------------
@@ -571,14 +566,6 @@ half::operator - () const
     half h;
     h._h = _h ^ 0x8000;
     return h;
-}
-
-
-inline half &
-half::operator = (half h)
-{
-    _h = h._h;
-    return *this;
 }
 
 
@@ -765,4 +752,3 @@ half::setBits (unsigned short bits)
 PXR_NAMESPACE_CLOSE_SCOPE
 
 #endif
-

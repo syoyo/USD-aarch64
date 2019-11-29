@@ -72,9 +72,7 @@ UsdUsdcFileFormat::InitData(const FileFormatArguments& args) const
 
     // The pseudo-root spec must always exist in a layer's SdfData, so
     // add it here.
-    newData->CreateSpec(SdfAbstractDataSpecId(&SdfPath::AbsoluteRootPath()),
-                        SdfSpecTypePseudoRoot);
-
+    newData->CreateSpec(SdfPath::AbsoluteRootPath(), SdfSpecTypePseudoRoot);
     return TfCreateRefPtr(newData);
 }
 
@@ -150,12 +148,6 @@ UsdUsdcFileFormat::WriteToStream(const SdfSpecHandle &spec,
 {
     return SdfFileFormat::FindById(UsdUsdaFileFormatTokens->Id)->
         WriteToStream(spec, out, indent);
-}
-
-bool 
-UsdUsdcFileFormat::_IsStreamingLayer(const SdfLayer& layer) const
-{
-    return true;
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

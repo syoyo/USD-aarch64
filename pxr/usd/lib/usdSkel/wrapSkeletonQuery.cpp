@@ -103,7 +103,7 @@ _ComputeJointRestRelativeTransforms(UsdSkelSkeletonQuery& self,
     self.ComputeJointRestRelativeTransforms(&xforms, time);
     return xforms;
 }
- 
+
 
 } // namespace
 
@@ -132,6 +132,9 @@ void wrapUsdSkelSkeletonQuery()
         .def("GetTopology", &This::GetTopology,
              return_value_policy<return_by_value>())
 
+        .def("GetMapper", &This::GetMapper,
+             return_value_policy<return_by_value>())
+
         .def("GetJointOrder", &This::GetJointOrder)
         
         .def("GetJointWorldBindTransforms", &_GetJointWorldBindTransforms)
@@ -151,6 +154,10 @@ void wrapUsdSkelSkeletonQuery()
         .def("ComputeJointRestRelativeTransforms",
              &_ComputeJointRestRelativeTransforms,
              (arg("time")=UsdTimeCode::Default()))
+
+        .def("HasBindPose", &This::HasBindPose)
+
+        .def("HasRestPose", &This::HasRestPose)
         
         ;
 }            

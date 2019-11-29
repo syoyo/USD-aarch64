@@ -105,6 +105,13 @@ MakeScalarValueImpl(GfHalf *out, vector<Value> const &vars, size_t &index) {
     *out = GfHalf(vars[index++].Get<float>());
 }
 
+inline void
+MakeScalarValueImpl(
+    SdfTimeCode *out, vector<Value> const &vars, size_t &index) {
+    CHECK_BOUNDS(1, "timecode");
+    *out = SdfTimeCode(vars[index++].Get<double>());
+}
+
 template <class Int>
 inline typename boost::enable_if<boost::is_integral<Int> >::type
 MakeScalarValueImpl(Int *out, vector<Value> const &vars, size_t &index) {
@@ -402,6 +409,7 @@ TF_MAKE_STATIC_DATA(_ValueFactoryMap, _valueFactories) {
     builder.add<GfHalf>(SdfValueTypeNames->Half);
     builder.add<float>(SdfValueTypeNames->Float);
     builder.add<double>(SdfValueTypeNames->Double);
+    builder.add<SdfTimeCode>(SdfValueTypeNames->TimeCode);
     builder.add<std::string>(SdfValueTypeNames->String);
     builder.add<TfToken>(SdfValueTypeNames->Token);
     builder.add<SdfAssetPath>(SdfValueTypeNames->Asset);
@@ -496,11 +504,6 @@ TF_MAKE_STATIC_DATA(_ValueFactoryMap, _valueFactories) {
 ValueFactory const &GetValueFactoryForMenvaName(std::string const &name,
                                                 bool *found)
 {
-    // XXX: This call is probably not needed anymore; constructing the
-    // schema doesn't affect the value factories we register here.
-    // I'm leaving this here for now to clean up in a separate change.
-    SdfSchema::GetInstance();
-
     _ValueFactoryMap::const_iterator it = _valueFactories->find(name);
     if (it != _valueFactories->end()) {
         *found = true;

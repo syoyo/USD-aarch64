@@ -31,6 +31,7 @@
 
 #include "gusd/context.h"
 #include "gusd/stageCache.h"
+#include "gusd/USD_Utils.h"
 
 #include <UT/UT_String.h>
 
@@ -242,7 +243,7 @@ _rebindPrimAndChildren(UsdStageWeakPtr primStage, const SdfPath& primPath,
     // Recurse on all children of the referenced prim (same as children of the
     // prim we are writing because it is a reference...).
     UsdPrimSiblingRange refChidlren = refPrim.GetAllChildren();
-    for (UsdPrim refChild : refChidlren){
+    for (const UsdPrim& refChild : refChidlren){
         SdfPath childPrimPath = primPath.AppendPath(
                                         SdfPath(refChild.GetPath().GetName()));
         _rebindPrimAndChildren(primStage, childPrimPath, refChild,
@@ -334,14 +335,25 @@ GusdPackedUsdWrapper::updateFromGTPrim(
             UT_StringRef stagePath(fileName.c_str());
             UsdStageRefPtr refStage = cache.FindOrOpen( stagePath );
             if (refStage) {
+                // Set modelingVariant to ALL_VARIANTS per pipeline convention.
+                // For some models, this will activate scopes that we might
+                // need to be present to properly load a variant to get access
+                // to its shader bindings
+                GusdUSD_Utils::SetModelingVariant(refStage,
+                    refStage->GetDefaultPrim(),
+                    GusdUSD_Utils::kAllVariantsToken);
+
                 UsdPrim refPrim = refStage->GetPrimAtPath( primPath );
                 if (refPrim.IsValid()) {
-
                     // Reference in needed materials and recursivley rebind
                     _rebindPrimAndChildren(m_primRef.GetStage(),
                                            m_primRef.GetPrimPath(),
                                            refPrim, fileName);
                 }
+
+                // clear out the modelingVariant selection.
+                GusdUSD_Utils::ClearModelingVariant(refStage,
+                    refStage->GetDefaultPrim());
             }
         }
 

@@ -53,7 +53,6 @@ HdxRenderSetupTask::HdxRenderSetupTask(HdSceneDelegate* delegate, SdfPath const&
     , _idRenderPassShader()
     , _viewport()
     , _cameraId()
-    , _renderTags()
     , _aovBindings()
 {
     _colorRenderPassShader.reset(
@@ -92,7 +91,7 @@ HdxRenderSetupTask::Prepare(HdTaskContext* ctx,
                             HdRenderIndex* renderIndex)
 {
 
-    PrepareAovBindings(renderIndex);
+    _PrepareAovBindings(ctx, renderIndex);
     PrepareCamera(renderIndex);
 
     HdRenderPassStateSharedPtr &renderPassState =
@@ -109,7 +108,6 @@ HdxRenderSetupTask::Execute(HdTaskContext* ctx)
 
     // set raster state to TaskContext
     (*ctx)[HdxTokens->renderPassState] = VtValue(_renderPassState);
-    (*ctx)[HdxTokens->renderTags] = VtValue(_renderTags);
 }
 
 void
@@ -184,7 +182,6 @@ HdxRenderSetupTask::SyncParams(HdSceneDelegate* delegate,
         !TfDebug::IsEnabled(HDX_DISABLE_ALPHA_TO_COVERAGE));
 
     _viewport = params.viewport;
-    _renderTags = params.renderTags;
     _cameraId = params.camera;
     _aovBindings = params.aovBindings;
 
@@ -195,23 +192,26 @@ HdxRenderSetupTask::SyncParams(HdSceneDelegate* delegate,
 }
 
 void
-HdxRenderSetupTask::PrepareAovBindings(HdRenderIndex* renderIndex)
+HdxRenderSetupTask::_PrepareAovBindings(HdTaskContext* ctx,
+                                        HdRenderIndex* renderIndex)
 {
     // Walk the aov bindings, resolving the render index references as they're
     // encountered.
-    HdRenderPassAovBindingVector aovBindings = _aovBindings;
-    for (size_t i = 0; i < aovBindings.size(); ++i)
-    {
-        if (aovBindings[i].renderBuffer == nullptr) {
-            aovBindings[i].renderBuffer = static_cast<HdRenderBuffer*>(
+    for (size_t i = 0; i < _aovBindings.size(); ++i) {
+        if (_aovBindings[i].renderBuffer == nullptr) {
+            _aovBindings[i].renderBuffer = static_cast<HdRenderBuffer*>(
                 renderIndex->GetBprim(HdPrimTypeTokens->renderBuffer,
-                aovBindings[i].renderBufferId));
+                _aovBindings[i].renderBufferId));
         }
     }
 
     HdRenderPassStateSharedPtr &renderPassState =
             _GetRenderPassState(renderIndex);
-    renderPassState->SetAovBindings(aovBindings);
+    renderPassState->SetAovBindings(_aovBindings);
+
+    // XXX Tasks that are not RenderTasks (OIT, ColorCorrection etc) also need
+    // access to AOVs, but cannot access SetupTask or RenderPassState.
+    (*ctx)[HdxTokens->aovBindings] = VtValue(_aovBindings);
 }
 
 void
@@ -219,34 +219,11 @@ HdxRenderSetupTask::PrepareCamera(HdRenderIndex* renderIndex)
 {
     const HdCamera *camera = static_cast<const HdCamera *>(
         renderIndex->GetSprim(HdPrimTypeTokens->camera, _cameraId));
+    TF_VERIFY(camera);
 
-    if (camera) {
-        VtValue modelViewVt  = camera->Get(HdCameraTokens->worldToViewMatrix);
-        VtValue projectionVt = camera->Get(HdCameraTokens->projectionMatrix);
-        GfMatrix4d modelView = modelViewVt.Get<GfMatrix4d>();
-        GfMatrix4d projection= projectionVt.Get<GfMatrix4d>();
-
-        // If there is a window policy available in this camera
-        // we will extract it and adjust the projection accordingly.
-        VtValue windowPolicy = camera->Get(HdCameraTokens->windowPolicy);
-        if (windowPolicy.IsHolding<CameraUtilConformWindowPolicy>()) {
-            const CameraUtilConformWindowPolicy policy = 
-                windowPolicy.Get<CameraUtilConformWindowPolicy>();
-
-            projection = CameraUtilConformedWindow(projection, policy,
-                _viewport[3] != 0.0 ? _viewport[2] / _viewport[3] : 1.0);
-        }
-
-        const VtValue &vClipPlanes = camera->Get(HdCameraTokens->clipPlanes);
-        const HdRenderPassState::ClipPlanesVector &clipPlanes =
-            vClipPlanes.Get<HdRenderPassState::ClipPlanesVector>();
-
-        // sync render pass state
-        HdRenderPassStateSharedPtr &renderPassState =
-                _GetRenderPassState(renderIndex);
-        renderPassState->SetCamera(modelView, projection, _viewport);
-        renderPassState->SetClipPlanes(clipPlanes);
-    }
+    HdRenderPassStateSharedPtr &renderPassState =
+            _GetRenderPassState(renderIndex);
+    renderPassState->SetCameraAndViewport(camera, _viewport);
 }
 
 void
@@ -321,9 +298,6 @@ std::ostream& operator<<(std::ostream& out, const HdxRenderTaskParams& pv)
         for (auto const& a : pv.aovBindings) {
             out << a << " ";
         }
-        for (auto const& rt : pv.renderTags) {
-            out << rt << " ";
-        }
     return out;
 }
 
@@ -364,8 +338,7 @@ bool operator==(const HdxRenderTaskParams& lhs, const HdxRenderTaskParams& rhs)
            lhs.cullStyle               == rhs.cullStyle               &&
            lhs.aovBindings             == rhs.aovBindings             &&
            lhs.camera                  == rhs.camera                  &&
-           lhs.viewport                == rhs.viewport                &&
-           lhs.renderTags              == rhs.renderTags;
+           lhs.viewport                == rhs.viewport;
 }
 
 bool operator!=(const HdxRenderTaskParams& lhs, const HdxRenderTaskParams& rhs) 
