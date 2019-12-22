@@ -82,11 +82,16 @@
 
 include(FindPackageHandleStandardArgs)
 
-#if(ANDROID)
-#  set(TBB_INCLUDE_DIRS "$ENV{TBBROOT}/include")
-#  set(TBB_LIBRARIES "$ENV{TBBROOT}/lib/libtbb.so")
-#
-#else()
+if(ANDROID)
+  # directly specify path to tbb
+  set(TBB_INCLUDE_DIRS "$ENV{TBBROOT}/include")
+  set(TBB_LIBRARIES "$ENV{TBBROOT}/lib/libtbb.so")
+  set(TBB_FOUND TRUE)
+  set(TBB_tbb_LIBRARY "$ENV{TBBROOT}/lib/libtbb.so")
+  set(TBB_tbbmalloc_LIBRARY "$ENV{TBBROOT}/lib/libtbb_malloc.so")
+  set(TBB_tbb_FOUND TRUE)
+  set(TBB_tbbmalloc_FOUND TRUE)
+else()
 if(NOT TBB_FOUND)
 
   ##################################
@@ -230,4 +235,4 @@ if(NOT TBB_FOUND)
   mark_as_advanced(TBB_INCLUDE_DIRS TBB_LIBRARIES)
 
 endif()
-#endif(ANDROID)
+endif(ANDROID)
