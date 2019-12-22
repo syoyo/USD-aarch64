@@ -4,6 +4,8 @@ AARCH64 port of Universal Scene Description
 This repo is a aarch64 port of USD library.
 Some features are disabled.
 
+Since USD depends many libraries, I recommend to use https://github.com/syoyo/USD-build-aarch64 to build USD.
+
 Build with cross compilation
 ----------------------------
 
@@ -41,9 +43,6 @@ Also set Ptex path(optional), then
 $ ./scripts/bootstrap-aarch64-gcc-cross-linux.sh`
 ```
 
-**NOTE**
-
-boost headers(files only required to compile USD) are copied from 1.69 to `thrird_party/boost` using bcp tool.
 
 Following is the original USD README.
 
