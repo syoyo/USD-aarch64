@@ -4,7 +4,8 @@ AARCH64 port of Universal Scene Description
 This repo is a aarch64 port of USD library.
 Some features are disabled.
 
-Since USD depends many libraries, I recommend to use https://github.com/syoyo/USD-build-aarch64 to build USD.
+Since USD depends many libraries, it is not recommended to build USD only using this repo.
+Plese use https://github.com/syoyo/USD-build-aarch64 to build USD.
 
 Build with cross compilation
 ----------------------------
