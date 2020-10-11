@@ -67,7 +67,7 @@
 #include <mutex>
 #include <thread>
 
-/* Darwin/ppc did not do stack traces.  Darwin/i386 still 
+/* Darwin/ppc did not do stack traces.  Darwin/i386 still
    needs some work, this has been stubbed out for now.  */
 
 #if defined(ARCH_OS_LINUX)
@@ -161,11 +161,11 @@ private:
     mutable std::mutex _progInfoForErrorsMutex;
 
     // Printed version of _progInfo map, since we can't
-    // traverse it during an error. 
+    // traverse it during an error.
     char *_progInfoForErrors;
 };
 
-Arch_ProgInfo::~Arch_ProgInfo() 
+Arch_ProgInfo::~Arch_ProgInfo()
 {
     if (_progInfoForErrors)
         free(_progInfoForErrors);
@@ -198,7 +198,7 @@ Arch_ProgInfo::SetProgramInfoForErrors(
     _progInfoForErrors = strdup(ss.str().c_str());
 }
 
-std::string 
+std::string
 Arch_ProgInfo::GetProgramInfoForErrors(const std::string& key) const
 {
     std::lock_guard<std::mutex> lock(_progInfoForErrorsMutex);
@@ -209,9 +209,9 @@ Arch_ProgInfo::GetProgramInfoForErrors(const std::string& key) const
         result = iter->second;
 
     return result;
-} 
+}
 
-void 
+void
 Arch_ProgInfo::PrintInfoForErrors() const
 {
     std::lock_guard<std::mutex> lock(_progInfoForErrorsMutex);
@@ -261,7 +261,7 @@ Arch_LogInfo::SetExtraLogInfoForErrors(const std::string &key,
     }
 }
 
-void 
+void
 Arch_LogInfo::EmitAnyExtraLogInfo(FILE *outFile, size_t max) const
 {
     // This function can't cause any heap allocation, be careful.
@@ -484,7 +484,7 @@ int _GetStackTraceName(char* buf, size_t len)
     // the empty file.
     int suffix = 0;
 #if defined(ARCH_OS_WINDOWS)
-    int fd = _open(buf, O_CREAT | O_WRONLY | O_TRUNC | O_EXCL, 
+    int fd = _open(buf, O_CREAT | O_WRONLY | O_TRUNC | O_EXCL,
                    _S_IREAD | _S_IWRITE);
 #else
     int fd =  open(buf, O_CREAT | O_WRONLY | O_TRUNC | O_EXCL, 0640);
@@ -501,7 +501,7 @@ int _GetStackTraceName(char* buf, size_t len)
         asstrcpy(end, ".");
         asitoa(end + 1, suffix);
 #if defined(ARCH_OS_WINDOWS)
-        fd = _open(buf, O_CREAT | O_WRONLY | O_TRUNC | O_EXCL, 
+        fd = _open(buf, O_CREAT | O_WRONLY | O_TRUNC | O_EXCL,
                    _S_IREAD | _S_IWRITE);
 #else
         fd =  open(buf, O_CREAT | O_WRONLY | O_TRUNC | O_EXCL, 0640);
@@ -583,7 +583,15 @@ nonLockingLinux__execve (const char *file,
                          char *const argv[],
                          char *const envp[])
 {
-#if defined(ARCH_BITS_64)
+#if defined(ANDROID)
+
+    // No support for execve()
+    (void)file;
+    (void)argv;
+    (void)envp;
+    return -1;
+
+#elif defined(ARCH_BITS_64)
     /*
      * We make a direct system call here, because we can't find an
      * execve which corresponds with the non-locking fork we call
@@ -636,7 +644,9 @@ nonLockingLinux__execve (const char *file,
 static int
 nonLockingExecv(const char *path, char *const argv[])
 {
-#if defined(ARCH_OS_LINUX)
+#if defined(ANDROID)
+     return nonLockingLinux__execve (path, argv, nullptr);
+#elif defined(ARCH_OS_LINUX)
      return nonLockingLinux__execve (path, argv, __environ);
 #else
      return execv(path, argv);
@@ -742,7 +752,7 @@ Arch_SetAppLaunchTime()
  * ArchGetAppLaunchTime()
  * -------------------------------
  * Returns the application's launch time, or NULL if a timestamp hasn't
- * been created with AchSetAppLaunchTime().  
+ * been created with AchSetAppLaunchTime().
  */
 time_t
 ArchGetAppLaunchTime()
@@ -750,7 +760,7 @@ ArchGetAppLaunchTime()
     // Defaults to NULL
     return _appLaunchTime;
 }
- 
+
 /*
  * ArchSetFatalStackLogging()
  * -------------------------------
@@ -762,7 +772,7 @@ ArchGetAppLaunchTime()
 void
 ArchSetFatalStackLogging( bool flag )
 {
-    _shouldLogStackToDb = flag;   
+    _shouldLogStackToDb = flag;
 }
 
 /*
@@ -786,10 +796,10 @@ ArchSetProgramInfoForErrors(const std::string& key,
 }
 
 std::string
-ArchGetProgramInfoForErrors(const std::string& key) 
+ArchGetProgramInfoForErrors(const std::string& key)
 {
     return ArchStackTrace_GetProgInfo().GetProgramInfoForErrors(key);
-} 
+}
 
 void
 ArchSetExtraLogInfoForErrors(const std::string &key,
@@ -801,15 +811,15 @@ ArchSetExtraLogInfoForErrors(const std::string &key,
 /*
  * ArchSetProgramNameForErrors
  * ---------------------------
- * Set's the program name that is to be used for diagnostic output.  
+ * Set's the program name that is to be used for diagnostic output.
  */
 void
 ArchSetProgramNameForErrors( const char *progName )
 {
-     
+
     if (_progNameForErrors)
         free(_progNameForErrors);
-    
+
     if (progName)
         _progNameForErrors = strdup(getBase(progName).c_str());
     else
@@ -907,7 +917,7 @@ _InvokeSessionLogger(const char* progname, const char *stackTrace)
     }
 
     // Invoke the command.
-    ArchCrashHandlerSystemv(argv[0], (char *const*)argv, 
+    ArchCrashHandlerSystemv(argv[0], (char *const*)argv,
                             60 /* wait up to 60 seconds */, NULL, NULL);
 }
 
@@ -1062,7 +1072,7 @@ ArchLogPostMortem(const char* reason,
           stderr);
 
     if (loggedStack) {
-        _FinishLoggingFatalStackTrace(progname, logfile, NULL /*session log*/, 
+        _FinishLoggingFatalStackTrace(progname, logfile, NULL /*session log*/,
                                       true /* crashing hard? */);
     }
 
@@ -1073,7 +1083,7 @@ ArchLogPostMortem(const char* reason,
  * Write a stack trace to a file, without forking.
  */
 void
-ArchLogStackTrace(const std::string& reason, bool fatal, 
+ArchLogStackTrace(const std::string& reason, bool fatal,
                   const string &sessionLog)
 {
     ArchLogStackTrace(ArchGetProgramNameForErrors(), reason, fatal,
@@ -1124,7 +1134,7 @@ ArchLogStackTrace(const std::string& progname, const std::string& reason,
         fclose(fout);
         if (fatal) {
             _FinishLoggingFatalStackTrace(progname.c_str(), tmpFile.c_str(),
-                                          sessionLog.empty() ?  
+                                          sessionLog.empty() ?
                                           NULL : sessionLog.c_str(),
                                           false /* crashing hard? */);
         }
@@ -1209,8 +1219,8 @@ ArchPrintStackTrace(std::ostream& out, const std::string& reason)
 /*
  * ArchPrintStackTrace
  *  print out a stack trace to the given ostream.
- * 
- * This function should probably not be called from a signal handler as 
+ *
+ * This function should probably not be called from a signal handler as
  * it calls printf and other unsafe functions.
  */
 void
@@ -1264,7 +1274,7 @@ public:
 
 static _Unwind_Reason_Code
 Arch_unwindcb(struct _Unwind_Context *ctx, void *data)
-{   
+{
     Arch_UnwindContext* context = static_cast<Arch_UnwindContext*>(data);
 
     // never extend frames because it is unsafe to alloc inside a

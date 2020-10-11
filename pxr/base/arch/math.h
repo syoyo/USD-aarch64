@@ -97,6 +97,62 @@ inline double ArchBitPatternToDouble(uint64_t v) {
     return value._double;
 }
 
+#elif defined(__aarch64__)
+
+// Use same code of X86
+
+/// This is the smallest value e such that 1+e^2 == 1, using floats.
+/// True for all IEEE754 chipsets.
+#define ARCH_MIN_FLOAT_EPS_SQR      0.000244141F
+
+/// Three-valued sign.  Return 1 if val > 0, 0 if val == 0, or -1 if val < 0.
+inline long ArchSign(long val) {
+    return (val > 0) - (val < 0);
+}
+
+/// Returns The IEEE-754 bit pattern of the specified single precision value
+/// as a 32-bit unsigned integer.
+inline uint32_t ArchFloatToBitPattern(float v) {
+    union {
+        float _float;
+        uint32_t _uint;
+    } value;
+    value._float = v;
+    return value._uint;
+}
+
+/// Returns The single precision floating point value corresponding to the
+/// given IEEE-754 bit pattern.
+inline float ArchBitPatternToFloat(uint32_t v) {
+    union {
+        uint32_t _uint;
+        float _float;
+    } value;
+    value._uint = v;
+    return value._float;
+}
+
+/// Returns The IEEE-754 bit pattern of the specified double precision value
+/// as a 64-bit unsigned integer.
+inline uint64_t ArchDoubleToBitPattern(double v) {
+    union {
+        double _double;
+        uint64_t _uint;
+    } value;
+    value._double = v;
+    return value._uint;
+}
+
+/// Returns The double precision floating point value corresponding to the
+/// given IEEE-754 bit pattern.
+inline double ArchBitPatternToDouble(uint64_t v) {
+    union {
+        uint64_t _uint;
+        double _double;
+    } value;
+    value._uint = v;
+    return value._double;
+}
 #else
 #error Unknown system architecture.
 #endif
@@ -113,11 +169,11 @@ inline void ArchSinCos(double v, double *s, double *c) { sincos(v, s, c); }
 
 inline void ArchSinCosf(float v, float *s, float *c) {
     *s = std::sin(v);
-    *c = std::cos(v);  
+    *c = std::cos(v);
 }
 inline void ArchSinCos(double v, double *s, double *c) {
     *s = std::sin(v);
-    *c = std::cos(v);  
+    *c = std::cos(v);
 }
 
 #else

@@ -202,10 +202,15 @@ bool
 TfIsWritable(string const& path)
 {
 #if defined(ARCH_OS_LINUX)
+#if defined(ANDROID)
+    // AT_EACCESS is not supported on bionic.
+    return faccessat(AT_FDCWD, path.c_str(), W_OK, 0) == 0;
+#else
     // faccessat accounts for mount read-only status. For maintaining legacy
     // behavior, use faccessat instead of access so we can use the effective
-    // UID instead of the real UID. 
+    // UID instead of the real UID.
     return faccessat(AT_FDCWD, path.c_str(), W_OK, AT_EACCESS) == 0;
+#endif
 #else
     ArchStatType st;
     if (Tf_Stat(path, /* resolveSymlinks */ true, &st)) {
@@ -268,7 +273,7 @@ bool
 TfDeleteFile(std::string const& path)
 {
     if (ArchUnlinkFile(path.c_str()) != 0) {
-        TF_RUNTIME_ERROR("Failed to delete '%s': %s", 
+        TF_RUNTIME_ERROR("Failed to delete '%s': %s",
                 path.c_str(), ArchStrerror(errno).c_str());
         return false;
     }
@@ -385,7 +390,7 @@ TfReadDir(
 
     if ((dir = opendir(dirPath.c_str())) == NULL) {
         if (errMsg) {
-            *errMsg = TfStringPrintf("opendir failed: %s", 
+            *errMsg = TfStringPrintf("opendir failed: %s",
                         ArchStrerror(errno).c_str());
         }
         return false;
@@ -395,7 +400,7 @@ TfReadDir(
          result && rc == 0;
          rc = readdir_r(dir, &entry, &result)) {
 
-        if (strcmp(entry.d_name, ".") == 0 || 
+        if (strcmp(entry.d_name, ".") == 0 ||
             strcmp(entry.d_name, "..") == 0)
             continue;
 
@@ -413,7 +418,7 @@ TfReadDir(
             // If d_type is not available, or the filesystem has no support
             // for d_type, fall back to lstat.
             ArchStatType st;
-            if (fstatat(dirfd(dir), entry.d_name, 
+            if (fstatat(dirfd(dir), entry.d_name,
                         &st, AT_SYMLINK_NOFOLLOW) != 0)
                 continue;
 
@@ -440,7 +445,7 @@ TfReadDir(
     closedir(dir);
 #endif
     return true;
-}    
+}
 
 static void
 Tf_ReadDir(
@@ -460,7 +465,7 @@ Tf_ReadDir(
         if (onError) {
             onError(dirPath, errMsg);
         }
-}    
+}
 
 struct Tf_FileId {
     Tf_FileId(const ArchStatType& st)
@@ -579,7 +584,7 @@ Tf_RmTree(string const& dirpath,
             // not writable by us, or the parent directory is not writable by
             // us.
             if (onError) {
-                onError(dirpath, 
+                onError(dirpath,
                     TfStringPrintf("ArchUnlinkFile failed for '%s': %s",
                     path.c_str(), ArchStrerror(errno).c_str()));
             }

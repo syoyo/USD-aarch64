@@ -37,7 +37,11 @@
 ///@{
 
 #if defined(ARCH_OS_LINUX)
+#if defined(ANDROID)
+#include <sys/time.h>
+#else
 #include <x86intrin.h>
+#endif
 #elif defined(ARCH_OS_DARWIN)
 #include <mach/mach_time.h>
 #elif defined(ARCH_OS_WINDOWS)
@@ -69,6 +73,11 @@ ArchGetTickTime()
 #elif defined(ARCH_CPU_INTEL)
     // On Intel we'll use the rdtsc instruction.
     return __rdtsc();
+#elif defined(ANDROID)
+    // microseconds
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return ((tv.tv_sec * 1000 * 1000) + (tv.tv_usec));
 #else
 #error Unknown architecture.
 #endif
@@ -99,7 +108,7 @@ double ArchTicksToSeconds(uint64_t nTicks);
 /// \c ArchGetTickTime().
 ARCH_API
 uint64_t ArchSecondsToTicks(double seconds);
-    
+
 /// Get nanoseconds per tick. Useful when converting ticks obtained from
 /// \c ArchTickTime()
 ARCH_API
