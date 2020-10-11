@@ -442,7 +442,8 @@ char* asitoa(char* s, long x)
 void aswrite(int fd, const char* msg)
 {
     int saved = errno;
-    write(fd, msg, asstrlen(msg));
+    ssize_t n = write(fd, msg, asstrlen(msg));
+    (void)n;
     errno = saved;
 }
 
@@ -589,6 +590,14 @@ nonLockingLinux__execve (const char *file,
     (void)file;
     (void)argv;
     (void)envp;
+    return -1;
+#elif defined(__aarch64__)
+    // No support for execve() for now
+    (void)file;
+    (void)argv;
+    (void)envp;
+
+    fputs("nonLockingLinux__execve is not implemented on aarch64.\n", stderr);
     return -1;
 
 #elif defined(ARCH_BITS_64)

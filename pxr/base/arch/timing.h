@@ -37,7 +37,7 @@
 ///@{
 
 #if defined(ARCH_OS_LINUX)
-#if defined(ANDROID)
+#if defined(ANDROID) || defined(__aarch64__)
 #include <sys/time.h>
 #else
 #include <x86intrin.h>
@@ -73,10 +73,10 @@ ArchGetTickTime()
 #elif defined(ARCH_CPU_INTEL)
     // On Intel we'll use the rdtsc instruction.
     return __rdtsc();
-#elif defined(ANDROID)
+#elif defined(ANDROID) || defined(__aarch64__)
     // microseconds
     struct timeval tv;
-    gettimeofday(&tv, NULL);
+    gettimeofday(&tv, nullptr);
     return ((tv.tv_sec * 1000 * 1000) + (tv.tv_usec));
 #else
 #error Unknown architecture.
