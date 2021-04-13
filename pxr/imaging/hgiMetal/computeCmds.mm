@@ -38,8 +38,11 @@ HgiMetalComputeCmds::HgiMetalComputeCmds(HgiMetal* hgi)
     : HgiComputeCmds()
     , _hgi(hgi)
     , _pipelineState(nullptr)
+    , _commandBuffer(nil)
+    , _encoder(nil)
+    , _secondaryCommandBuffer(false)
 {
-    _encoder = [_hgi->GetCommandBuffer(false) computeCommandEncoder];
+    _CreateEncoder();
 }
 
 HgiMetalComputeCmds::~HgiMetalComputeCmds()
@@ -48,8 +51,22 @@ HgiMetalComputeCmds::~HgiMetalComputeCmds()
 }
 
 void
+HgiMetalComputeCmds::_CreateEncoder()
+{
+    if (!_encoder) {
+        _commandBuffer = _hgi->GetPrimaryCommandBuffer();
+        if (_commandBuffer == nil) {
+            _commandBuffer = _hgi->GetSecondaryCommandBuffer();
+            _secondaryCommandBuffer = true;
+        }
+        _encoder = [_commandBuffer computeCommandEncoder];
+    }
+}
+
+void
 HgiMetalComputeCmds::BindPipeline(HgiComputePipelineHandle pipeline)
 {
+    _CreateEncoder();
     _pipelineState = static_cast<HgiMetalComputePipeline*>(pipeline.Get());
     _pipelineState->BindPipeline(_encoder);
 }
@@ -60,6 +77,7 @@ HgiMetalComputeCmds::BindResources(HgiResourceBindingsHandle r)
     if (HgiMetalResourceBindings* rb=
         static_cast<HgiMetalResourceBindings*>(r.Get()))
     {
+        _CreateEncoder();
         rb->BindResources(_encoder);
     }
 }
@@ -71,6 +89,7 @@ HgiMetalComputeCmds::SetConstantValues(
     uint32_t byteSize,
     const void* data)
 {
+    _CreateEncoder();
     [_encoder setBytes:data
                 length:byteSize
                atIndex:bindIndex];
@@ -95,7 +114,8 @@ HgiMetalComputeCmds::Dispatch(int dimX, int dimY)
     }
 
     [_encoder dispatchThreads:MTLSizeMake(dimX, dimY, 1)
-       threadsPerThreadgroup:MTLSizeMake(thread_width, thread_height, 1)];
+       threadsPerThreadgroup:MTLSizeMake(MIN(thread_width, dimX),
+                                         MIN(thread_height, dimY), 1)];
 
     _hasWork = true;
 }
@@ -103,6 +123,7 @@ HgiMetalComputeCmds::Dispatch(int dimX, int dimY)
 void
 HgiMetalComputeCmds::PushDebugGroup(const char* label)
 {
+    _CreateEncoder();
     HGIMETAL_DEBUG_LABEL(_encoder, label)
 }
 
@@ -111,15 +132,47 @@ HgiMetalComputeCmds::PopDebugGroup()
 {
 }
 
-bool
-HgiMetalComputeCmds::_Submit(Hgi* hgi)
+void
+HgiMetalComputeCmds::MemoryBarrier(HgiMemoryBarrier barrier)
 {
+    TF_VERIFY(barrier==HgiMemoryBarrierAll, "Unknown barrier");
+    // Do nothing. All resource writes performed in a given kernel function
+    // are visible in the next kernel function.
+}
+
+bool
+HgiMetalComputeCmds::_Submit(Hgi* hgi, HgiSubmitWaitType wait)
+{
+    bool submittedWork = false;
     if (_encoder) {
         [_encoder endEncoding];
         _encoder = nil;
-        return true;
+        submittedWork = true;
+
+        HgiMetal::CommitCommandBufferWaitType waitType;
+        switch(wait) {
+            case HgiSubmitWaitTypeNoWait:
+                waitType = HgiMetal::CommitCommandBuffer_NoWait;
+                break;
+            case HgiSubmitWaitTypeWaitUntilCompleted:
+                waitType = HgiMetal::CommitCommandBuffer_WaitUntilCompleted;
+                break;
+        }
+
+        if (_secondaryCommandBuffer) {
+            _hgi->CommitSecondaryCommandBuffer(_commandBuffer, waitType);
+        }
+        else {
+            _hgi->CommitPrimaryCommandBuffer(waitType);
+        }
     }
-    return false;
+    
+    if (_secondaryCommandBuffer) {
+        _hgi->ReleaseSecondaryCommandBuffer(_commandBuffer);
+    }
+    _commandBuffer = nil;
+
+    return submittedWork;
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

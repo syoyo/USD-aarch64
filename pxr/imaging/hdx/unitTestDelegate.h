@@ -37,7 +37,6 @@
 #include "pxr/base/gf/matrix4f.h"
 #include "pxr/base/gf/matrix4d.h"
 #include "pxr/base/vt/array.h"
-#include "pxr/base/tf/staticTokens.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
 
@@ -80,12 +79,11 @@ public:
     void AddShadowTask(SdfPath const &id);
     void AddSelectionTask(SdfPath const &id);
     void AddDrawTargetTask(SdfPath const &id);
-    void AddDrawTargetResolveTask(SdfPath const &id);
     void AddPickTask(SdfPath const &id);
 
     void SetTaskParam(SdfPath const &id, TfToken const &name, VtValue val);
     VtValue GetTaskParam(SdfPath const &id, TfToken const &name);
-    HdRenderBufferDescriptor GetRenderBufferDescriptor(SdfPath const &id);
+    HdRenderBufferDescriptor GetRenderBufferDescriptor(SdfPath const &id) override;
 
     /// Instancer
     void AddInstancer(SdfPath const &id,
@@ -172,13 +170,11 @@ public:
     SdfPath GetMaterialId(SdfPath const &rprimId) override;
     VtValue GetMaterialResource(SdfPath const &materialId) override;
 
+    SdfPath GetInstancerId(SdfPath const &primId) override;
+
     VtValue GetCameraParamValue(
         SdfPath const &cameraId,
         TfToken const &paramName) override;
-    HdTextureResource::ID GetTextureResourceID(SdfPath const& textureId) 
-        override;
-    HdTextureResourceSharedPtr GetTextureResource(SdfPath const& textureId) 
-        override;
 
     TfTokenVector GetTaskRenderTags(SdfPath const& taskId) override;
 
@@ -248,11 +244,12 @@ private:
     std::map<SdfPath, _DrawTarget> _drawTargets;
     int _refineLevel;
 
-    typedef std::map<SdfPath, SdfPath> SdfPathMap;
+    using SdfPathMap = std::map<SdfPath, SdfPath>;
     SdfPathMap _materialBindings;
+    SdfPathMap _instancerBindings;
 
-    typedef TfHashMap<TfToken, VtValue, TfToken::HashFunctor> _ValueCache;
-    typedef TfHashMap<SdfPath, _ValueCache, SdfPath::Hash> _ValueCacheMap;
+    using _ValueCache = TfHashMap<TfToken, VtValue, TfToken::HashFunctor>;
+    using _ValueCacheMap = TfHashMap<SdfPath, _ValueCache, SdfPath::Hash>;
     _ValueCacheMap _valueCacheMap;
 
     SdfPath _cameraId;

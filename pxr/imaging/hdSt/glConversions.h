@@ -28,6 +28,7 @@
 #include "pxr/imaging/hdSt/api.h"
 #include "pxr/imaging/hd/enums.h"
 #include "pxr/imaging/hd/types.h"
+#include "pxr/imaging/hio/types.h"
 #include "pxr/base/tf/token.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -54,18 +55,6 @@ public:
 
     HDST_API
     static GLenum GetGlBlendFactor(HdBlendFactor factor);
-
-    HDST_API
-    static GLenum GetMinFilter(HdMinFilter filter);
-
-    HDST_API
-    static GLenum GetMagFilter(HdMagFilter filter);
-
-    HDST_API
-    static GLenum GetWrap(HdWrap wrap);
-
-    HDST_API
-    static void GetGlFormat(HdFormat inFormat, GLenum *outFormat, GLenum *outType, GLenum *outInternalFormat);
 
     HDST_API
     static int GetGLAttribType(HdType type);

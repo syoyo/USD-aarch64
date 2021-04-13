@@ -41,17 +41,24 @@ class UsdPrim;
 ///
 class UsdImagingField3DAssetAdapter : public UsdImagingFieldAdapter {
 public:
-    typedef UsdImagingFieldAdapter BaseAdapter;
+    using BaseAdapter = UsdImagingFieldAdapter;
 
     UsdImagingField3DAssetAdapter()
         : UsdImagingFieldAdapter()
     {}
 
     USDVOLIMAGING_API
-    virtual ~UsdImagingField3DAssetAdapter();
+    ~UsdImagingField3DAssetAdapter() override;
 
     USDVOLIMAGING_API
-    virtual TfToken GetPrimTypeToken() const;
+    VtValue Get(UsdPrim const& prim,
+                SdfPath const& cachePath,
+                TfToken const& key,
+                UsdTimeCode time,
+                VtIntArray *outIndices) const override;
+
+    USDVOLIMAGING_API
+    TfToken GetPrimTypeToken() const override;
 };
 
 

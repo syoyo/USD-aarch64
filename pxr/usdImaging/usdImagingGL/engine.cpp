@@ -21,7 +21,8 @@
 // KIND, either express or implied. See the Apache License for the specific
 // language governing permissions and limitations under the Apache License.
 //
-#include "pxr/imaging/glf/glew.h"
+#include "pxr/imaging/garch/glApi.h"
+
 #include "pxr/usdImaging/usdImagingGL/engine.h"
 
 #include "pxr/usdImaging/usdImagingGL/legacyEngine.h"
@@ -38,6 +39,7 @@
 
 #include "pxr/imaging/hd/rendererPlugin.h"
 #include "pxr/imaging/hd/rendererPluginRegistry.h"
+#include "pxr/imaging/hdx/pickTask.h"
 #include "pxr/imaging/hdx/taskController.h"
 #include "pxr/imaging/hdx/tokens.h"
 
@@ -85,8 +87,8 @@ void _InitGL()
 
     std::call_once(initFlag, []{
 
-        // Initialize Glew library for GL Extensions if needed
-        GlfGlewInit();
+        // Initialize GL library for GL Extensions if needed
+        GarchGLApiLoad();
 
         // Initialize if needed and switch to shared GL context.
         GlfSharedGLContextScopeHolder sharedContext;
@@ -220,7 +222,7 @@ UsdImagingGLEngine::PrepareBatch(
 
     TF_VERIFY(_sceneDelegate);
 
-    if (_CanPrepareBatch(root, params)) {
+    if (_CanPrepare(root)) {
         if (!_isPopulated) {
             _sceneDelegate->SetUsdDrawModesEnabled(params.enableUsdDrawModes);
             _sceneDelegate->Populate(
@@ -230,11 +232,30 @@ UsdImagingGLEngine::PrepareBatch(
             _isPopulated = true;
         }
 
-        _PreSetTime(root, params);
+        _PreSetTime(params);
         // SetTime will only react if time actually changes.
         _sceneDelegate->SetTime(params.frame);
-        _PostSetTime(root, params);
+        _PostSetTime(params);
     }
+}
+
+void
+UsdImagingGLEngine::_PrepareRender(const UsdImagingGLRenderParams& params)
+{
+    TF_VERIFY(_taskController);
+
+    _taskController->SetFreeCameraClipPlanes(params.clipPlanes);
+
+    TfTokenVector renderTags;
+    _ComputeRenderTags(params, &renderTags);
+    _taskController->SetRenderTags(renderTags);
+
+    _taskController->SetRenderParams(
+        _MakeHydraUsdImagingGLRenderParams(params));
+
+    // Forward scene materials enable option to delegate
+    _sceneDelegate->SetSceneMaterialsEnabled(params.enableSceneMaterials);
+    _sceneDelegate->SetSceneLightsEnabled(params.enableSceneLights);
 }
 
 void
@@ -248,18 +269,10 @@ UsdImagingGLEngine::RenderBatch(
 
     TF_VERIFY(_taskController);
 
-    _taskController->SetFreeCameraClipPlanes(params.clipPlanes);
     _UpdateHydraCollection(&_renderCollection, paths, params);
     _taskController->SetCollection(_renderCollection);
 
-    TfTokenVector renderTags;
-    _ComputeRenderTags(params, &renderTags);
-    _taskController->SetRenderTags(renderTags);
-
-    HdxRenderTaskParams hdParams = _MakeHydraUsdImagingGLRenderParams(params);
-
-    _taskController->SetRenderParams(hdParams);
-    _taskController->SetEnableSelection(params.highlight);
+    _PrepareRender(params);
 
     SetColorCorrectionSettings(params.colorCorrectionMode);
 
@@ -274,9 +287,7 @@ UsdImagingGLEngine::RenderBatch(
             HdAovTokens->color, colorAovDesc);
     }
 
-    // Forward scene materials enable option to delegate
-    _sceneDelegate->SetSceneMaterialsEnabled(params.enableSceneMaterials);
-
+    _taskController->SetEnableSelection(params.highlight);
     VtValue selectionValue(_selTracker);
     _engine->SetTaskContextData(HdxTokens->selectionState, selectionValue);
     _Execute(params, _taskController->GetRenderingTasks());
@@ -302,14 +313,6 @@ UsdImagingGLEngine::Render(
         _sceneDelegate->ConvertCachePathToIndexPath(cachePath) };
 
     RenderBatch(paths, params);
-}
-
-void
-UsdImagingGLEngine::InvalidateBuffers()
-{
-    if (ARCH_UNLIKELY(_legacyImpl)) {
-        return _legacyImpl->InvalidateBuffers();
-    }
 }
 
 bool
@@ -363,6 +366,46 @@ UsdImagingGLEngine::SetRenderViewport(GfVec4d const& viewport)
 
     TF_VERIFY(_taskController);
     _taskController->SetRenderViewport(viewport);
+}
+
+void
+UsdImagingGLEngine::SetFraming(CameraUtilFraming const& framing)
+{
+    if (ARCH_UNLIKELY(_legacyImpl)) {
+        // legacy implementation does not support camera framing.
+        return;
+    }
+
+    if (TF_VERIFY(_taskController)) {
+        _taskController->SetFraming(framing);
+    }
+}
+
+void
+UsdImagingGLEngine::SetOverrideWindowPolicy(
+    const std::pair<bool, CameraUtilConformWindowPolicy> &policy)
+{
+    if (ARCH_UNLIKELY(_legacyImpl)) {
+        // legacy implementation does not support camera framing.
+        return;
+    }
+
+    if (TF_VERIFY(_taskController)) {
+        _taskController->SetOverrideWindowPolicy(policy);
+    }
+}
+
+void
+UsdImagingGLEngine::SetRenderBufferSize(GfVec2i const& size)
+{
+    if (ARCH_UNLIKELY(_legacyImpl)) {
+        // legacy implementation does not support camera framing.
+        return;
+    }
+
+    if (TF_VERIFY(_taskController)) {
+        _taskController->SetRenderBufferSize(size);
+    }
 }
 
 void
@@ -574,6 +617,7 @@ UsdImagingGLEngine::TestIntersection(
     const UsdPrim& root,
     const UsdImagingGLRenderParams& params,
     GfVec3d *outHitPoint,
+    GfVec3d *outHitNormal,
     SdfPath *outHitPrimPath,
     SdfPath *outHitInstancerPath,
     int *outHitInstanceIndex,
@@ -594,6 +638,8 @@ UsdImagingGLEngine::TestIntersection(
     TF_VERIFY(_sceneDelegate);
     TF_VERIFY(_taskController);
 
+    PrepareBatch(root, params);
+
     // XXX(UsdImagingPaths): This is incorrect...  "Root" points to a USD
     // subtree, but the subtree in the hydra namespace might be very different
     // (e.g. for native instancing).  We need a translation step.
@@ -602,15 +648,7 @@ UsdImagingGLEngine::TestIntersection(
         _sceneDelegate->ConvertCachePathToIndexPath(cachePath) };
     _UpdateHydraCollection(&_intersectCollection, roots, params);
 
-    TfTokenVector renderTags;
-    _ComputeRenderTags(params, &renderTags);
-    _taskController->SetRenderTags(renderTags);
-
-    _taskController->SetRenderParams(
-        _MakeHydraUsdImagingGLRenderParams(params));
-
-    // Forward scene materials enable option to delegate
-    _sceneDelegate->SetSceneMaterialsEnabled(params.enableSceneMaterials);
+    _PrepareRender(params);
 
     HdxPickHitVector allHits;
     HdxPickTaskContextParams pickParams;
@@ -634,9 +672,11 @@ UsdImagingGLEngine::TestIntersection(
     HdxPickHit &hit = allHits[0];
 
     if (outHitPoint) {
-        *outHitPoint = GfVec3d(hit.worldSpaceHitPoint[0],
-                               hit.worldSpaceHitPoint[1],
-                               hit.worldSpaceHitPoint[2]);
+        *outHitPoint = hit.worldSpaceHitPoint;
+    }
+
+    if (outHitNormal) {
+        *outHitNormal = hit.worldSpaceHitNormal;
     }
 
     hit.objectId = _sceneDelegate->GetScenePrimPath(
@@ -1003,6 +1043,33 @@ UsdImagingGLEngine::SetRendererSetting(TfToken const& id, VtValue const& value)
     _renderDelegate->SetRenderSetting(id, value);
 }
 
+void
+UsdImagingGLEngine::SetEnablePresentation(bool enabled)
+{
+    if (ARCH_UNLIKELY(_legacyImpl)) {
+        return;
+    }
+
+    if (TF_VERIFY(_taskController)) {
+        _taskController->SetEnablePresentation(enabled);
+    }
+}
+
+void
+UsdImagingGLEngine::SetPresentationOutput(
+    TfToken const &api,
+    VtValue const &framebuffer)
+{
+    if (ARCH_UNLIKELY(_legacyImpl)) {
+        return;
+    }
+
+    if (TF_VERIFY(_taskController)) {
+        _userFramebuffer = framebuffer;
+        _taskController->SetPresentationOutput(api, framebuffer);
+    }
+}
+
 // ---------------------------------------------------------------------
 // Control of background rendering threads.
 // ---------------------------------------------------------------------
@@ -1102,11 +1169,10 @@ UsdImagingGLEngine::SetColorCorrectionSettings(
     _taskController->SetColorCorrectionParams(hdParams);
 }
 
-bool 
+bool
 UsdImagingGLEngine::IsColorCorrectionCapable()
 {
-    return GlfContextCaps::GetInstance().floatingPointBuffersEnabled && 
-           IsHydraEnabled();
+    return true;
 }
 
 //----------------------------------------------------------------------------
@@ -1154,10 +1220,22 @@ UsdImagingGLEngine::_Execute(const UsdImagingGLRenderParams &params,
 
     TF_VERIFY(_sceneDelegate);
 
-    // User is responsible for initializing GL context and glew
+    // User is responsible for initializing GL context
     const bool isCoreProfileContext = GlfContextCaps::GetInstance().coreProfile;
 
     GLF_GROUP_FUNCTION();
+
+    GLint restoreReadFbo = 0;
+    GLint restoreDrawFbo = 0;
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &restoreReadFbo);
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &restoreDrawFbo);
+    if (_userFramebuffer.IsEmpty()) {
+        // If user supplied no framebuffer, use the currently bound
+        // framebuffer.
+        _taskController->SetPresentationOutput(
+            HgiTokens->OpenGL,
+            VtValue(static_cast<uint32_t>(restoreDrawFbo)));
+    }
 
     GLuint vao;
     if (isCoreProfileContext) {
@@ -1173,25 +1251,15 @@ UsdImagingGLEngine::_Execute(const UsdImagingGLRenderParams &params,
     }
 
     // hydra orients all geometry during topological processing so that
-    // front faces have ccw winding. We disable culling because culling
-    // is handled by fragment shader discard.
+    // front faces have ccw winding.
     if (params.flipFrontFacing) {
         glFrontFace(GL_CW); // < State is pushed via GL_POLYGON_BIT
     } else {
         glFrontFace(GL_CCW); // < State is pushed via GL_POLYGON_BIT
     }
-    glDisable(GL_CULL_FACE);
 
     if (params.applyRenderState) {
         glDisable(GL_BLEND);
-    }
-
-    // note: to get benefit of alpha-to-coverage, the target framebuffer
-    // has to be a MSAA buffer.
-    if (params.enableIdRender) {
-        glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
-    } else if (params.enableSampleAlphaToCoverage) {
-        glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE);
     }
 
     // for points width
@@ -1220,12 +1288,13 @@ UsdImagingGLEngine::_Execute(const UsdImagingGLRenderParams &params,
     } else {
         glPopAttrib(); // GL_ENABLE_BIT | GL_POLYGON_BIT | GL_DEPTH_BUFFER_BIT
     }
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, restoreReadFbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, restoreDrawFbo);
 }
 
 bool 
-UsdImagingGLEngine::_CanPrepareBatch(
-    const UsdPrim& root, 
-    const UsdImagingGLRenderParams& params)
+UsdImagingGLEngine::_CanPrepare(const UsdPrim& root)
 {
     HD_TRACE_FUNCTION();
 
@@ -1280,8 +1349,7 @@ _GetRefineLevel(float c)
 }
 
 void
-UsdImagingGLEngine::_PreSetTime(const UsdPrim& root, 
-    const UsdImagingGLRenderParams& params)
+UsdImagingGLEngine::_PreSetTime(const UsdImagingGLRenderParams& params)
 {
     HD_TRACE_FUNCTION();
 
@@ -1295,9 +1363,7 @@ UsdImagingGLEngine::_PreSetTime(const UsdPrim& root,
 }
 
 void
-UsdImagingGLEngine::_PostSetTime(
-    const UsdPrim& root, 
-    const UsdImagingGLRenderParams& params)
+UsdImagingGLEngine::_PostSetTime(const UsdImagingGLRenderParams& params)
 {
     HD_TRACE_FUNCTION();
 }
@@ -1427,6 +1493,7 @@ UsdImagingGLEngine::_MakeHydraUsdImagingGLRenderParams(
     }
 
     params.enableSceneMaterials = renderParams.enableSceneMaterials;
+    params.enableSceneLights = renderParams.enableSceneLights;
 
     // We don't provide the following because task controller ignores them:
     // - params.camera

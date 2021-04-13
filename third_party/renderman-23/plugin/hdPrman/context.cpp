@@ -36,6 +36,7 @@
 #include "pxr/base/gf/vec2f.h"
 #include "pxr/base/gf/vec3f.h"
 #include "pxr/base/gf/vec4f.h"
+#include "pxr/base/tf/staticData.h"
 #include "pxr/usd/sdf/path.h"
 #include "pxr/imaging/hd/extComputationUtils.h"
 #include "pxr/imaging/hd/sceneDelegate.h"
@@ -51,6 +52,12 @@
 #include "RixPredefinedStrings.hpp"
 
 PXR_NAMESPACE_OPEN_SCOPE
+
+TF_MAKE_STATIC_DATA(std::vector<HdPrman_Context::IntegratorCameraCallback>,
+                    _integratorCameraCallbacks)
+{
+    _integratorCameraCallbacks->clear();
+}
 
 HdPrman_Context::HdPrman_Context() :
     rix(nullptr),
@@ -453,6 +460,8 @@ _IsMasterAttribute(TfToken const& primvarName)
         TfToken("ri:attributes:Ri:Orientation"),
         TfToken("ri:attributes:trace:autobias"),
         TfToken("ri:attributes:trace:bias"),
+        TfToken("ri:attributes:trace:sssautobias"),
+        TfToken("ri:attributes:trace:sssbias"),
         TfToken("ri:attributes:trace:displacements"),
         // Dicing
         TfToken("ri:attributes:dice:micropolygonlength"),
@@ -471,6 +480,7 @@ _IsMasterAttribute(TfToken const& primvarName)
         TfToken("ri:attributes:dice:minlengthspace"),
         TfToken("ri:attributes:Ri:Bound"),
         TfToken("ri:attributes:volume:dsominmax"),
+        TfToken("ri:attributes:volume:aggregate"),
         // SubdivisionMesh
         TfToken("ri:attributes:dice:pretessellate"),
         TfToken("ri:attributes:dice:watertight"),
@@ -1032,7 +1042,7 @@ HdPrman_Context::SetIntegratorParamsFromRenderSettings(
             _SetParamValue(riName, val, RtDetailType::k_constant,
                            TfToken(), params);
         }
-    }        
+    }
 }
 
 void
@@ -1106,7 +1116,7 @@ HdPrman_UpdateSearchPathsFromEnvironment(RtParamList& options)
             paths.push_back(TfStringCatPaths(rmantree, "lib/plugins"));
         }
         // Default hdPrman installation under 'plugins/usd'
-        // We need the path to RtxGlfImage and we assume that it lives in the
+        // We need the path to RtxHioImage and we assume that it lives in the
         // same directory as hdPrmanLoader
         PlugPluginPtr plugin =
             PlugRegistry::GetInstance().GetPluginWithName("hdPrmanLoader");
@@ -1130,6 +1140,25 @@ HdPrman_UpdateSearchPathsFromEnvironment(RtParamList& options)
         options.SetString( RixStr.k_searchpath_procedural,
                             RtUString(proceduralpath.c_str()) );
     }
+}
+
+void
+HdPrman_Context::SetIntegratorParamsFromCamera(
+    HdPrmanRenderDelegate *renderDelegate,
+    HdPrmanCamera *camera,
+    std::string const& integratorName,
+    RtParamList &integratorParams)
+{
+    for(auto const& cb: *_integratorCameraCallbacks) {
+        cb(renderDelegate, camera, integratorName, integratorParams);
+    }
+}
+
+void 
+HdPrman_Context::RegisterIntegratorCallbackForCamera(
+    IntegratorCameraCallback const& callback)
+{
+   _integratorCameraCallbacks->push_back(callback);
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

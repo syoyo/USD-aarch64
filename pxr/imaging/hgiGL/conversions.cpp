@@ -21,7 +21,7 @@
 // KIND, either express or implied. See the Apache License for the specific
 // language governing permissions and limitations under the Apache License.
 //
-#include <GL/glew.h>
+#include "pxr/imaging/garch/glApi.h"
 
 #include "pxr/imaging/hgi/enums.h"
 #include "pxr/imaging/hgiGL/conversions.h"
@@ -61,18 +61,33 @@ static const _FormatDesc FORMAT_DESC[] =
     {GL_RGB,  GL_FLOAT,         GL_RGB32F      }, // Float32Vec3
     {GL_RGBA, GL_FLOAT,         GL_RGBA32F     }, // Float32Vec4
 
-    {GL_RED,  GL_INT,           GL_R32I        }, // Int32
-    {GL_RG,   GL_INT,           GL_RG32I       }, // Int32Vec2
-    {GL_RGB,  GL_INT,           GL_RGB32I      }, // Int32Vec3
-    {GL_RGBA, GL_INT,           GL_RGBA32I     }, // Int32Vec4
+    {GL_RED_INTEGER,  GL_UNSIGNED_SHORT,GL_R16UI        }, // UInt16
+    {GL_RG_INTEGER,   GL_UNSIGNED_SHORT,GL_RG16UI       }, // UInt16Vec2
+    {GL_RGB_INTEGER,  GL_UNSIGNED_SHORT,GL_RGB16UI      }, // UInt16Vec3
+    {GL_RGBA_INTEGER, GL_UNSIGNED_SHORT,GL_RGBA16UI     }, // UInt16Vec4
+
+    {GL_RED_INTEGER,  GL_INT,   GL_R32I        }, // Int32
+    {GL_RG_INTEGER,   GL_INT,   GL_RG32I       }, // Int32Vec2
+    {GL_RGB_INTEGER,  GL_INT,   GL_RGB32I      }, // Int32Vec3
+    {GL_RGBA_INTEGER, GL_INT,   GL_RGBA32I     }, // Int32Vec4
 
     // {GL_RGB,  GL_UNSIGNED_BYTE, GL_SRGB8      }, // Unsupported by HgiFormat
     {GL_RGBA, GL_UNSIGNED_BYTE, GL_SRGB8_ALPHA8}, // UNorm8Vec4sRGB,
 
-    {GL_RGB, GL_FLOAT, GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT  }, // BC6FloatVec3
-    {GL_RGB, GL_FLOAT, GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT}, // BC6UFloatVec3
+    {GL_RGB,  GL_FLOAT,
+              GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT  }, // BC6FloatVec3
+    {GL_RGB,  GL_FLOAT,
+              GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT}, // BC6UFloatVec3
+    {GL_RGBA, GL_UNSIGNED_BYTE,
+              GL_COMPRESSED_RGBA_BPTC_UNORM }, // BC7UNorm8Vec4
+    {GL_RGBA, GL_UNSIGNED_BYTE,
+              GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM }, // BC7UNorm8Vec4srgb
+    {GL_RGBA, GL_UNSIGNED_BYTE,
+              GL_COMPRESSED_RGBA_S3TC_DXT1_EXT }, // BC1UNorm8Vec4
+    {GL_RGBA, GL_UNSIGNED_BYTE,
+              GL_COMPRESSED_RGBA_S3TC_DXT5_EXT }, // BC3UNorm8Vec4
 
-    {GL_DEPTH_STENCIL, GL_FLOAT, GL_DEPTH32F_STENCIL8}, // HdFormatFloat32UInt8
+    {GL_DEPTH_STENCIL, GL_FLOAT, GL_DEPTH32F_STENCIL8}, // Float32UInt8
 
 };
 
@@ -83,7 +98,9 @@ constexpr bool _CompileTimeValidateHgiFormatTable() {
             HgiFormatUNorm8 == 0 &&
             HgiFormatFloat16Vec4 == 9 &&
             HgiFormatFloat32Vec4 == 13 &&
-            HgiFormatUNorm8Vec4srgb == 18) ? true : false;
+            HgiFormatUInt16Vec4 == 17 &&
+            HgiFormatUNorm8Vec4srgb == 22 &&
+            HgiFormatBC3UNorm8Vec4 == 28) ? true : false;
 }
 
 static_assert(_CompileTimeValidateHgiFormatTable(), 
@@ -166,9 +183,11 @@ _compareFunctionTable[HgiCompareFunctionCount][2] =
 static uint32_t
 _textureTypeTable[HgiTextureTypeCount][2] =
 {
-    {HgiTextureType1D, GL_TEXTURE_1D},
-    {HgiTextureType2D, GL_TEXTURE_2D},
-    {HgiTextureType3D, GL_TEXTURE_3D}
+    {HgiTextureType1D,      GL_TEXTURE_1D},
+    {HgiTextureType2D,      GL_TEXTURE_2D},
+    {HgiTextureType3D,      GL_TEXTURE_3D},
+    {HgiTextureType1DArray, GL_TEXTURE_1D_ARRAY},
+    {HgiTextureType2DArray, GL_TEXTURE_2D_ARRAY}
 };
 
 static uint32_t
@@ -179,6 +198,27 @@ _samplerAddressModeTable[HgiSamplerAddressModeCount][2] =
     {HgiSamplerAddressModeRepeat,             GL_REPEAT},
     {HgiSamplerAddressModeMirrorRepeat,       GL_MIRRORED_REPEAT},
     {HgiSamplerAddressModeClampToBorderColor, GL_CLAMP_TO_BORDER}
+};
+
+static const uint32_t
+_componentSwizzleTable[HgiComponentSwizzleCount][2] =
+{
+    {HgiComponentSwizzleZero, GL_ZERO},
+    {HgiComponentSwizzleOne,  GL_ONE},
+    {HgiComponentSwizzleR,    GL_RED},
+    {HgiComponentSwizzleG,    GL_GREEN},
+    {HgiComponentSwizzleB,    GL_BLUE},
+    {HgiComponentSwizzleA,    GL_ALPHA}
+};
+
+static const uint32_t
+_primitiveTypeTable[HgiPrimitiveTypeCount][2] =
+{
+    {HgiPrimitiveTypePointList,    GL_POINTS},
+    {HgiPrimitiveTypeLineList,     GL_LINES},
+    {HgiPrimitiveTypeLineStrip,    GL_LINES_ADJACENCY},
+    {HgiPrimitiveTypeTriangleList, GL_TRIANGLES},
+    {HgiPrimitiveTypePatchList,    GL_PATCHES}
 };
 
 void
@@ -326,6 +366,18 @@ HgiGLConversions::GetMinFilter(
 
     TF_CODING_ERROR("Unsupported sampler options");
     return GL_NONE;
+}
+
+GLenum
+HgiGLConversions::GetComponentSwizzle(HgiComponentSwizzle componentSwizzle)
+{
+    return _componentSwizzleTable[componentSwizzle][1];
+}
+
+GLenum
+HgiGLConversions::GetPrimitiveType(HgiPrimitiveType pt)
+{
+    return _primitiveTypeTable[pt][1];
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE

@@ -23,7 +23,7 @@
 //
 
 // Must be included before GL headers.
-#include "pxr/imaging/glf/glew.h"
+#include "pxr/imaging/garch/glApi.h"
 
 #include "pxr/pxr.h"
 #include "pxr/usdImaging/usdAppUtils/frameRecorder.h"
@@ -32,11 +32,13 @@
 
 #include "pxr/imaging/glf/simpleLight.h"
 #include "pxr/imaging/glf/simpleMaterial.h"
+#include "pxr/imaging/hio/image.h"
 #include "pxr/usd/usd/stage.h"
 #include "pxr/usd/usdGeom/bboxCache.h"
 #include "pxr/usd/usdGeom/metrics.h"
 #include "pxr/usd/usdGeom/tokens.h"
 
+#include "pxr/imaging/hdx/types.h"
 #include "pxr/imaging/hgi/blitCmds.h"
 #include "pxr/imaging/hgi/blitCmdsOps.h"
 #include "pxr/imaging/hgi/hgi.h"
@@ -53,7 +55,7 @@ UsdAppUtilsFrameRecorder::UsdAppUtilsFrameRecorder() :
     _colorCorrectionMode("disabled"),
     _purposes({UsdGeomTokens->default_, UsdGeomTokens->proxy})
 {
-    GlfGlewInit();
+    GarchGLApiLoad();
 }
 
 static bool
@@ -131,7 +133,7 @@ _ReadbackTexture(Hgi* const hgi,
                  std::vector<uint8_t>& buffer)
 {
     const HgiTextureDesc& textureDesc = textureHandle.Get()->GetDescriptor();
-    const size_t formatByteSize = HgiDataSizeOfFormat(textureDesc.format);
+    const size_t formatByteSize = HgiGetDataSizeOfFormat(textureDesc.format);
     const size_t width = textureDesc.dimensions[0];
     const size_t height = textureDesc.dimensions[1];
     const size_t dataByteSize = width * height * formatByteSize;
@@ -147,54 +149,12 @@ _ReadbackTexture(Hgi* const hgi,
     copyOp.gpuSourceTexture = textureHandle;
     copyOp.sourceTexelOffset = GfVec3i(0);
     copyOp.mipLevel = 0;
-    copyOp.startLayer = 0;
-    copyOp.numLayers = 1;
     copyOp.cpuDestinationBuffer = buffer.data();
     copyOp.destinationByteOffset = 0;
     copyOp.destinationBufferByteSize = alignedByteSize;
     blitCmds->CopyTextureGpuToCpu(copyOp);
-    hgi->SubmitCmds(blitCmds.get());
+    hgi->SubmitCmds(blitCmds.get(), HgiSubmitWaitTypeWaitUntilCompleted);
 }
-
-struct _FormatDesc {
-    GLenum format;
-    GLenum type;
-};
-
-static constexpr _FormatDesc FORMAT_DESC[HgiFormatCount] =
-{
-    // format,  type
-    {GL_RED,  GL_UNSIGNED_BYTE }, // UNorm8
-    {GL_RG,   GL_UNSIGNED_BYTE }, // UNorm8Vec2
-//  {GL_RGB,  GL_UNSIGNED_BYTE }, // Unsupported by HgiFormat
-    {GL_RGBA, GL_UNSIGNED_BYTE }, // UNorm8Vec4
-
-    {GL_RED,  GL_BYTE          }, // SNorm8
-    {GL_RG,   GL_BYTE          }, // SNorm8Vec2
-//  {GL_RGB,  GL_BYTE          }, // Unsupported by HgiFormat
-    {GL_RGBA, GL_BYTE          }, // SNorm8Vec4
-
-    {GL_RED,  GL_HALF_FLOAT    }, // Float16
-    {GL_RG,   GL_HALF_FLOAT    }, // Float16Vec2
-    {GL_RGB,  GL_HALF_FLOAT    }, // Float16Vec3
-    {GL_RGBA, GL_HALF_FLOAT    }, // Float16Vec4
-
-    {GL_RED,  GL_FLOAT         }, // Float32
-    {GL_RG,   GL_FLOAT         }, // Float32Vec2
-    {GL_RGB,  GL_FLOAT         }, // Float32Vec3
-    {GL_RGBA, GL_FLOAT         }, // Float32Vec4
-
-    {GL_RED,  GL_INT           }, // Int32
-    {GL_RG,   GL_INT           }, // Int32Vec2
-    {GL_RGB,  GL_INT           }, // Int32Vec3
-    {GL_RGBA, GL_INT           }, // Int32Vec4
-
-//  {GL_RGB, GL_UNSIGNED_BYTE  }, // Unsupported by HgiFormat
-    {GL_RGBA, GL_UNSIGNED_BYTE }, // UNorm8Vec4sRGB,
-
-    {GL_RGB, GL_FLOAT          }, // BC6FloatVec3
-    {GL_RGB, GL_FLOAT          }
-};
 
 static bool
 _WriteTextureToFile(HgiTextureDesc const& textureDesc,
@@ -202,7 +162,7 @@ _WriteTextureToFile(HgiTextureDesc const& textureDesc,
                     std::string const& filename,
                     const bool flipped)
 {
-    const size_t formatByteSize = HgiDataSizeOfFormat(textureDesc.format);
+    const size_t formatByteSize = HgiGetDataSizeOfFormat(textureDesc.format);
     const size_t width = textureDesc.dimensions[0];
     const size_t height = textureDesc.dimensions[1];
     const size_t dataByteSize = width * height * formatByteSize;
@@ -214,14 +174,11 @@ _WriteTextureToFile(HgiTextureDesc const& textureDesc,
     if (textureDesc.format < 0 || textureDesc.format >= HgiFormatCount) {
         return false;
     }
-
-    _FormatDesc formatDesc = FORMAT_DESC[textureDesc.format];
     
-    GlfImage::StorageSpec storage;
+    HioImage::StorageSpec storage;
     storage.width = width;
     storage.height = height;
-    storage.format = formatDesc.format;
-    storage.type = formatDesc.type;
+    storage.format = HdxGetHioFormat(textureDesc.format);
     storage.flipped = flipped;
     storage.data = (void*)buffer.data();
 
@@ -229,7 +186,7 @@ _WriteTextureToFile(HgiTextureDesc const& textureDesc,
         TRACE_FUNCTION_SCOPE("writing image");
         VtDictionary metadata;
         
-        GlfImageSharedPtr const image = GlfImage::OpenForWriting(filename);
+        HioImageSharedPtr const image = HioImage::OpenForWriting(filename);
         const bool writeSuccess = image && image->Write(storage, metadata);
         
         if (!writeSuccess) {

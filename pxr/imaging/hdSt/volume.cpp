@@ -27,15 +27,15 @@
 #include "pxr/imaging/hdSt/material.h"
 #include "pxr/imaging/hdSt/package.h"
 #include "pxr/imaging/hdSt/field.h"
+#include "pxr/imaging/hdSt/materialParam.h"
+#include "pxr/imaging/hdSt/primUtils.h"
+#include "pxr/imaging/hdSt/resourceBinder.h"
 #include "pxr/imaging/hdSt/resourceRegistry.h"
-#include "pxr/imaging/hdSt/rprimUtils.h"
 #include "pxr/imaging/hdSt/surfaceShader.h"
+#include "pxr/imaging/hdSt/textureBinder.h"
 #include "pxr/imaging/hdSt/tokens.h"
 #include "pxr/imaging/hdSt/volumeShader.h"
 #include "pxr/imaging/hdSt/volumeShaderKey.h"
-#include "pxr/imaging/hdSt/textureBinder.h"
-#include "pxr/imaging/hdSt/materialParam.h"
-#include "pxr/imaging/hdSt/resourceBinder.h"
 
 #include "pxr/imaging/hd/sceneDelegate.h"
 #include "pxr/imaging/hd/vtBufferSource.h"
@@ -57,10 +57,11 @@ TF_DEFINE_PRIVATE_TOKENS(
     (emission)
 );
 
-const float HdStVolume::defaultStepSize         = 1.0f;
-const float HdStVolume::defaultStepSizeLighting = 2.0f;
+const float HdStVolume::defaultStepSize                 =   1.0f;
+const float HdStVolume::defaultStepSizeLighting         =  10.0f;
+const float HdStVolume::defaultMaxTextureMemoryPerField = 128.0f;
 
-HdStVolume::HdStVolume(SdfPath const& id, SdfPath const & instancerId)
+HdStVolume::HdStVolume(SdfPath const& id)
     : HdVolume(id)
 {
 }
@@ -81,17 +82,13 @@ static const int _initialDirtyBitsMask =
     | HdChangeTracker::DirtyPrimID
     | HdChangeTracker::DirtyPrimvar
     | HdChangeTracker::DirtyTransform
-    | HdChangeTracker::DirtyVisibility;
+    | HdChangeTracker::DirtyVisibility
+    | HdChangeTracker::DirtyInstancer;
 
 HdDirtyBits 
 HdStVolume::GetInitialDirtyBitsMask() const
 {
     int mask = _initialDirtyBitsMask;
-
-    if (!GetInstancerId().IsEmpty()) {
-        mask |= HdChangeTracker::DirtyInstancer;
-    }
-
     return (HdDirtyBits)mask;
 }
 
@@ -128,16 +125,12 @@ HdStVolume::Sync(HdSceneDelegate *delegate,
                  HdDirtyBits     *dirtyBits,
                  TfToken const   &reprToken)
 {
-    TF_UNUSED(renderParam);
-
     if (*dirtyBits & HdChangeTracker::DirtyMaterialId) {
-        _SetMaterialId(delegate->GetRenderIndex().GetChangeTracker(),
-                       delegate->GetMaterialId(GetId()));
-
-        _sharedData.materialTag = _GetMaterialTag(delegate->GetRenderIndex());
+        HdStSetMaterialId(delegate, renderParam, this);
+        SetMaterialTag(HdStMaterialTagTokens->volume);
     }
 
-    _UpdateRepr(delegate, reprToken, dirtyBits);
+    _UpdateRepr(delegate, renderParam, reprToken, dirtyBits);
 
     // This clears all the non-custom dirty bits. This ensures that the rprim
     // doesn't have pending dirty bits that add it to the dirty list every
@@ -147,14 +140,15 @@ HdStVolume::Sync(HdSceneDelegate *delegate,
     *dirtyBits &= ~HdChangeTracker::AllSceneDirtyBits;
 }
 
-const TfToken&
-HdStVolume::_GetMaterialTag(const HdRenderIndex &renderIndex) const
+void
+HdStVolume::Finalize(HdRenderParam *renderParam)
 {
-    return HdStMaterialTagTokens->volume;
+    HdStMarkGarbageCollectionNeeded(renderParam);
 }
 
 void
 HdStVolume::_UpdateRepr(HdSceneDelegate *sceneDelegate,
+                        HdRenderParam *renderParam,
                         TfToken const &reprToken,
                         HdDirtyBits *dirtyBits)
 {
@@ -171,7 +165,7 @@ HdStVolume::_UpdateRepr(HdSceneDelegate *sceneDelegate,
         curRepr->GetDrawItem(0));
 
     if (HdChangeTracker::IsDirty(*dirtyBits)) {
-        _UpdateDrawItem(sceneDelegate, drawItem, dirtyBits);
+        _UpdateDrawItem(sceneDelegate, renderParam, drawItem, dirtyBits);
     }
 
     *dirtyBits &= ~HdChangeTracker::NewRepr;
@@ -197,7 +191,7 @@ _MakeFallbackVolumeShader()
             HdSt_MaterialParam(
                 HdSt_MaterialParam::ParamTypeFieldRedirect,
                 _fallbackShaderTokens->density,
-                VtValue(GfVec3f(0.0, 0.0, 0.0)),
+                VtValue(0.0f),
                 { _fallbackShaderTokens->density }),
             HdSt_MaterialParam(
                 HdSt_MaterialParam::ParamTypeFieldRedirect,
@@ -399,7 +393,7 @@ _ComputeMaterialShader(
         params.push_back(param);
 
         namedTextureHandles.push_back(
-            { textureName, textureType, nullptr, desc->fieldId });
+            { textureName, textureType, nullptr, desc->fieldId.GetHash() });
     }
 
     const bool bindlessTextureEnabled
@@ -411,8 +405,8 @@ _ComputeMaterialShader(
         namedTextureHandles, bindlessTextureEnabled, &bufferSpecs);
 
     // Create params (so that HdGet_... are created) and buffer specs,
-    // to communicate volume bounding box to shader.
-    HdSt_VolumeShader::GetParamsAndBufferSpecsForBBox(
+    // to communicate volume bounding box and sample distance to shader.
+    HdSt_VolumeShader::GetParamsAndBufferSpecsForBBoxAndSampleDistance(
         &params, &bufferSpecs);
 
     const bool hasField = !namedTextureHandles.empty();
@@ -421,8 +415,9 @@ _ComputeMaterialShader(
     // the volume bounding box until after the textures have been
     // committed.
     if (!hasField) {
-        HdSt_VolumeShader::GetBufferSourcesForBBox(
-            GfBBox3d(authoredExtents), &bufferSources);
+        HdSt_VolumeShader::GetBufferSourcesForBBoxAndSampleDistance(
+            { GfBBox3d(authoredExtents), 1.0f },
+            &bufferSources);
     }
 
     // Make volume shader responsible if we have fields with bounding
@@ -494,6 +489,7 @@ _GetCubeTriangleIndices()
 
 void
 HdStVolume::_UpdateDrawItem(HdSceneDelegate *sceneDelegate,
+                            HdRenderParam *renderParam,
                             HdStDrawItem *drawItem,
                             HdDirtyBits *dirtyBits)
 {
@@ -508,8 +504,13 @@ HdStVolume::_UpdateDrawItem(HdSceneDelegate *sceneDelegate,
         const HdPrimvarDescriptorVector constantPrimvars =
             HdStGetPrimvarDescriptors(this, drawItem, sceneDelegate,
                                       HdInterpolationConstant);
-        HdStPopulateConstantPrimvars(this, &_sharedData, sceneDelegate,
-                                     drawItem, dirtyBits, constantPrimvars);
+        HdStPopulateConstantPrimvars(this,
+                                     &_sharedData,
+                                     sceneDelegate,
+                                     renderParam,
+                                     drawItem,
+                                     dirtyBits,
+                                     constantPrimvars);
     }
         
     if ((*dirtyBits) & HdChangeTracker::DirtyMaterialId) {

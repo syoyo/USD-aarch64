@@ -21,7 +21,6 @@
 // KIND, either express or implied. See the Apache License for the specific
 // language governing permissions and limitations under the Apache License.
 //
-#include "pxr/imaging/glf/glew.h"
 #include "pxr/imaging/glf/contextCaps.h"
 
 #include "pxr/imaging/hdSt/commandBuffer.h"
@@ -55,7 +54,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 HdStCommandBuffer::HdStCommandBuffer()
     : _visibleSize(0)
     , _visChangeCount(0)
-    , _batchVersion(0)
+    , _drawBatchesVersion(0)
 {
     /*NOTHING*/
 }
@@ -113,29 +112,30 @@ HdStCommandBuffer::ExecuteDraw(
         batch->ExecuteDraw(renderPassState, resourceRegistry);
     }
     HD_PERF_COUNTER_SET(HdPerfTokens->drawBatches, _drawBatches.size());
-
-    if (!glBindBuffer) {
-        // useful when testing with GL drawing disabled
-        HD_PERF_COUNTER_SET(HdTokens->itemsDrawn, _visibleSize);
-    }
 }
 
 void
 HdStCommandBuffer::SwapDrawItems(std::vector<HdStDrawItem const*>* items,
-                               unsigned currentBatchVersion)
+                                 unsigned currentDrawBatchesVersion)
 {
     _drawItems.swap(*items);
     _RebuildDrawBatches();
-    _batchVersion = currentBatchVersion;
+    _drawBatchesVersion = currentDrawBatchesVersion;
 }
 
 void
-HdStCommandBuffer::RebuildDrawBatchesIfNeeded(unsigned currentBatchVersion)
+HdStCommandBuffer::RebuildDrawBatchesIfNeeded(unsigned currentBatchesVersion)
 {
     HD_TRACE_FUNCTION();
 
-    bool deepValidation = (currentBatchVersion != _batchVersion);
-    _batchVersion = currentBatchVersion;
+    bool deepValidation = (currentBatchesVersion != _drawBatchesVersion);
+    _drawBatchesVersion = currentBatchesVersion;
+
+    if (TfDebug::IsEnabled(HDST_DRAW_BATCH) && !_drawBatches.empty()) {
+        TfDebug::Helper().Msg(
+            "Command buffer %p : RebuildDrawBatchesIfNeeded "
+            "(deepValidation=%d)\n", (void*)(this), deepValidation);
+    }
     
     // Force rebuild of all batches for debugging purposes. This helps quickly
     // triage issues wherein the command buffer wasn't updated correctly.
@@ -143,20 +143,39 @@ HdStCommandBuffer::RebuildDrawBatchesIfNeeded(unsigned currentBatchVersion)
         TfDebug::IsEnabled(HDST_FORCE_DRAW_BATCH_REBUILD);
 
     if (ARCH_LIKELY(!rebuildAllDrawBatches)) {
+        // Gather results of validation ...
+        std::vector<HdSt_DrawBatch::ValidationResult> results;
+        results.reserve(_drawBatches.size());
+
         for (auto const& batch : _drawBatches) {
-            // Validate checks if the batch is referring to up-to-date
-            // buffer arrays (via a cheap version number hash check).
-            // If deepValidation is set, we loop over the draw items to check
-            // if they can be aggregated. If these checks fail, we need to
-            // rebuild the batch.
-            bool needToRebuildBatch = !batch->Validate(deepValidation);
-            if (needToRebuildBatch) {
-                // Attempt to rebuild the batch. If that fails, we use a big
-                // hammer and rebuilt ALL batches.
-                bool rebuildSuccess = batch->Rebuild();
-                if (!rebuildSuccess) {
-                    rebuildAllDrawBatches = true;
-                    break;
+            const HdSt_DrawBatch::ValidationResult result =
+                batch->Validate(deepValidation);
+            
+            if (result == HdSt_DrawBatch::ValidationResult::RebuildAllBatches) {
+                // Skip validation of remaining batches since we need to rebuild
+                // all batches. We don't expect to use this hammer on a frequent
+                // basis.
+                rebuildAllDrawBatches = true;
+                break;
+            }
+            
+            results.push_back(result);
+        }
+
+        // ... and attempt to rebuild necessary batches
+        if (!rebuildAllDrawBatches) {
+            TF_VERIFY(results.size() == _drawBatches.size());
+            size_t const numBatches = results.size();
+            for (size_t i = 0; i < numBatches; i++) {
+                if (results[i] ==
+                    HdSt_DrawBatch::ValidationResult::RebuildBatch) {
+                    
+                    if (!_drawBatches[i]->Rebuild()) {
+                        // If a batch rebuild fails, we fallback to rebuilding
+                        // all draw batches. This can be improved in the future.
+                        rebuildAllDrawBatches = true;
+                        break;
+                    }
                 }
             }
         }

@@ -98,12 +98,13 @@ HgiMetalGraphicsPipeline::_CreateRenderPipelineState(id<MTLDevice> device)
     // Create a new render pipeline state object
     HGIMETAL_DEBUG_LABEL(stateDesc, _descriptor.debugName.c_str());
     stateDesc.rasterSampleCount = 1;
-    
-    stateDesc.inputPrimitiveTopology = MTLPrimitiveTopologyClassUnspecified;
-    
+
+    stateDesc.inputPrimitiveTopology =
+        HgiMetalConversions::GetPrimitiveClass(_descriptor.primitiveType);
+
     HgiMetalShaderProgram const *metalProgram =
         static_cast<HgiMetalShaderProgram*>(_descriptor.shaderProgram.Get());
-    
+
     stateDesc.vertexFunction = metalProgram->GetVertexFunction();
     id<MTLFunction> fragFunction = metalProgram->GetFragmentFunction();
     if (fragFunction && _descriptor.rasterizationState.rasterizerEnabled) {
@@ -159,10 +160,10 @@ HgiMetalGraphicsPipeline::_CreateRenderPipelineState(id<MTLDevice> device)
     stateDesc.depthAttachmentPixelFormat =
         HgiMetalConversions::GetPixelFormat(hgiDepthAttachment.format);
 
+    stateDesc.sampleCount = _descriptor.multiSampleState.sampleCount;
     if (_descriptor.multiSampleState.alphaToCoverageEnable) {
         stateDesc.alphaToCoverageEnabled = YES;
-    }
-    else {
+    } else {
         stateDesc.alphaToCoverageEnabled = NO;
     }
 
@@ -178,9 +179,6 @@ HgiMetalGraphicsPipeline::_CreateRenderPipelineState(id<MTLDevice> device)
         NSString *err = [error localizedDescription];
         TF_WARN("Failed to created pipeline state, error %s",
             [err UTF8String]);
-        if (error) {
-            [error release];
-        }
     }
 }
 
@@ -205,8 +203,10 @@ HgiMetalGraphicsPipeline::_CreateDepthStencilState(id<MTLDevice> device)
         depthStencilStateDescriptor.depthCompareFunction = depthFn;
     }
     else {
+        // Even if there is no depth attachment, some drivers may still perform
+        // the depth test. So we pick Always over Never.
         depthStencilStateDescriptor.depthCompareFunction =
-            MTLCompareFunctionNever;
+            MTLCompareFunctionAlways;
     }
     
     if (_descriptor.depthState.stencilTestEnabled) {

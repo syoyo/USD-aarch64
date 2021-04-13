@@ -75,7 +75,12 @@ UsdLuxLightFilter::Define(
 }
 
 /* virtual */
-UsdSchemaType UsdLuxLightFilter::_GetSchemaType() const {
+UsdSchemaKind UsdLuxLightFilter::_GetSchemaKind() const {
+    return UsdLuxLightFilter::schemaKind;
+}
+
+/* virtual */
+UsdSchemaKind UsdLuxLightFilter::_GetSchemaType() const {
     return UsdLuxLightFilter::schemaType;
 }
 
@@ -143,11 +148,92 @@ PXR_NAMESPACE_CLOSE_SCOPE
 // ===================================================================== //
 // --(BEGIN CUSTOM CODE)--
 
+#include "pxr/usd/usdShade/connectableAPI.h"
+#include "pxr/usd/usdShade/connectableAPIBehavior.h"
+
 PXR_NAMESPACE_OPEN_SCOPE
 
-#include "pxr/usd/usdLux/tokens.h"
+class UsdLuxLightFilter_ConnectableAPIBehavior : 
+    public UsdShadeConnectableAPIBehavior
+{
+    bool
+    CanConnectInputToSource(const UsdShadeInput &input,
+                            const UsdAttribute &source,
+                            std::string *reason) override
+    {     
+        return _CanConnectInputToSource(input, source, reason, 
+                ConnectableNodeTypes::DerivedContainerNodes);
+    }
 
-USDLUX_API
+    bool IsContainer() const
+    {
+        return true;
+    }
+
+    // Note that LightFilter's outputs are not connectable (different from
+    // UsdShadeNodeGraph default behavior) as there are no known use-case for 
+    // these right now.
+
+};
+
+
+TF_REGISTRY_FUNCTION(UsdShadeConnectableAPI)
+{
+    // UsdLuxLightFilter prims are connectable, with special behavior requiring 
+    // connection source to be encapsulated under the light.
+    UsdShadeRegisterConnectableAPIBehavior<
+        UsdLuxLightFilter, UsdLuxLightFilter_ConnectableAPIBehavior>();
+}
+
+UsdLuxLightFilter::UsdLuxLightFilter(const UsdShadeConnectableAPI &connectable)
+    : UsdLuxLightFilter(connectable.GetPrim())
+{
+}
+
+UsdShadeConnectableAPI 
+UsdLuxLightFilter::ConnectableAPI() const
+{
+    return UsdShadeConnectableAPI(GetPrim());
+}
+
+UsdShadeOutput
+UsdLuxLightFilter::CreateOutput(const TfToken& name,
+                                const SdfValueTypeName& typeName)
+{
+    return UsdShadeConnectableAPI(GetPrim()).CreateOutput(name, typeName);
+}
+
+UsdShadeOutput
+UsdLuxLightFilter::GetOutput(const TfToken &name) const
+{
+    return UsdShadeConnectableAPI(GetPrim()).GetOutput(name);
+}
+
+std::vector<UsdShadeOutput>
+UsdLuxLightFilter::GetOutputs(bool onlyAuthored) const
+{
+    return UsdShadeConnectableAPI(GetPrim()).GetOutputs(onlyAuthored);
+}
+
+UsdShadeInput
+UsdLuxLightFilter::CreateInput(const TfToken& name,
+                               const SdfValueTypeName& typeName)
+{
+    return UsdShadeConnectableAPI(GetPrim()).CreateInput(name, typeName);
+}
+
+UsdShadeInput
+UsdLuxLightFilter::GetInput(const TfToken &name) const
+{
+    return UsdShadeConnectableAPI(GetPrim()).GetInput(name);
+}
+
+std::vector<UsdShadeInput>
+UsdLuxLightFilter::GetInputs(bool onlyAuthored) const
+{
+    return UsdShadeConnectableAPI(GetPrim()).GetInputs(onlyAuthored);
+}
+
 UsdCollectionAPI
 UsdLuxLightFilter::GetFilterLinkCollectionAPI() const
 {

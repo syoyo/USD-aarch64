@@ -53,8 +53,7 @@ public:
     typedef HdPrman_Gprim<HdVolume> BASE;
 public:
     HF_MALLOC_TAG_NEW("new HdPrman_Volume");
-    HdPrman_Volume(SdfPath const& id,
-                SdfPath const& instancerId = SdfPath());
+    HdPrman_Volume(SdfPath const& id);
     virtual HdDirtyBits GetInitialDirtyBitsMask() const override;
 
     /// The types of volumes that can be emitted to Prman are extensible, since
@@ -67,12 +66,13 @@ public:
     ///    UsdVolImagingTokens->field3dAsset
     ///
     /// Note, since a Volume prim can have multiple fields associated with it,
-    /// we require that all associated Fields are of the same type. The code
+    /// we require that all associated fields are of the same type. The code
     /// rejects a volume if that is not the case and issues a warning.
     ///
     /// The emitter functions that can be registered are responsible to fill in
     /// the RtParamList list with the k_Ri_type (name of the blobbydso) and any
-    /// parameters to this plugin (k_blobbydso_stringargs).
+    /// parameters to this plugin (k_blobbydso_stringargs). The function is also
+    /// responsible for declaring the primvar for each field.
     using HdPrman_VolumeTypeEmitter =
                         void (*)(HdSceneDelegate *sceneDelegate,
                                  SdfPath const& id,
@@ -85,6 +85,28 @@ public:
     static bool AddVolumeTypeEmitter(TfToken const& fieldPrimType,
                                      HdPrman_VolumeTypeEmitter emitterFunc,
                                      bool overrideExisting = false);
+
+    /// Specialized subset of primvar types for volume fields
+    enum FieldType {
+        FloatType = 0,
+        IntType,
+        Float2Type,
+        Int2Type,
+        Float3Type,
+        Int3Type,
+        ColorType,
+        PointType,
+        NormalType,
+        VectorType,
+        Float4Type,
+        MatrixType,
+        StringType
+    };
+
+    /// Helper method for emitter functions to declare a primvar for a field
+    static void DeclareFieldPrimvar(RtParamList* primvars,
+                                    RtUString const& fieldName,
+                                    FieldType type);
 
 protected:
     virtual RtParamList

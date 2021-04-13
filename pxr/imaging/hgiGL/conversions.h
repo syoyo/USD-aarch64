@@ -24,9 +24,9 @@
 #ifndef PXR_IMAGING_HGI_GL_CONVERSIONS_H
 #define PXR_IMAGING_HGI_GL_CONVERSIONS_H
 
-#include <GL/glew.h>
 #include "pxr/pxr.h"
 #include "pxr/imaging/hgiGL/api.h"
+#include "pxr/imaging/garch/glApi.h"
 #include "pxr/imaging/hgi/enums.h"
 #include "pxr/imaging/hgi/types.h"
 
@@ -83,6 +83,12 @@ public:
     static GLenum GetMinFilter(
         HgiSamplerFilter minFilter, 
         HgiMipFilter mipFilter);
+
+    HGIGL_API
+    static GLenum GetComponentSwizzle(HgiComponentSwizzle);
+
+    HGIGL_API
+    static GLenum GetPrimitiveType(HgiPrimitiveType pt);
 };
 
 

@@ -55,13 +55,20 @@ pxr_library(usdUtils
     PYMODULE_FILES
         __init__.py
         complianceChecker.py
+        constantsGroup.py
+        updateSchemaWithSdrNode.py
+
+    DOXYGEN_FILES
+        overview.dox
 )
 
 pxr_test_scripts(
     testenv/testUsdUtilsAuthoring.py
     testenv/testUsdUtilsCoalescingDiagnosticDelegate.py
     testenv/testUsdUtilsConditionalAbortDiagnosticDelegate.py
+    testenv/testUsdUtilsConstantsGroup.py
     testenv/testUsdUtilsCreateNewUsdzPackage.py
+    testenv/testUsdUtilsDependencies.py
     testenv/testUsdUtilsDependencyExtractor.py
     testenv/testUsdUtilsFlattenLayerStack.py
     testenv/testUsdUtilsIntrospection.py
@@ -109,6 +116,12 @@ pxr_install_test_dir(
     DEST testUsdUtilsAuthoring
 )
 
+pxr_register_test(testUsdUtilsConstantsGroup
+    PYTHON
+    COMMAND "${CMAKE_INSTALL_PREFIX}/tests/testUsdUtilsConstantsGroup"
+    EXPECTED_RETURN_CODE 0
+)
+
 pxr_install_test_dir(
     SRC testenv/testUsdUtilsCreateNewUsdzPackage
     DEST testUsdUtilsCreateNewARKitUsdzPackage
@@ -117,6 +130,11 @@ pxr_install_test_dir(
 pxr_install_test_dir(
     SRC testenv/testUsdUtilsCreateNewUsdzPackage
     DEST testUsdUtilsCreateNewUsdzPackage
+)
+
+pxr_install_test_dir(
+    SRC testenv/testUsdUtilsDependencies
+    DEST testUsdUtilsDependencies
 )
 
 pxr_install_test_dir(
@@ -357,6 +375,12 @@ pxr_register_test(testUsdUtilsCreateNewUsdzPackage
     PYTHON
     COMMAND "${CMAKE_INSTALL_PREFIX}/tests/testUsdUtilsCreateNewUsdzPackage --check -l contents.txt package.usdz root.usd"
     DIFF_COMPARE contents.txt
+    EXPECTED_RETURN_CODE 0
+)
+
+pxr_register_test(testUsdUtilsDependencies
+    PYTHON
+    COMMAND "${CMAKE_INSTALL_PREFIX}/tests/testUsdUtilsDependencies"
     EXPECTED_RETURN_CODE 0
 )
 

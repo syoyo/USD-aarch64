@@ -21,7 +21,7 @@
 // KIND, either express or implied. See the Apache License for the specific
 // language governing permissions and limitations under the Apache License.
 //
-#include "pxr/imaging/glf/glew.h"
+#include "pxr/imaging/garch/glApi.h"
 
 #include "pxr/imaging/hd/aov.h"
 #include "pxr/imaging/hd/binding.h"
@@ -227,7 +227,12 @@ HdStRenderPassShader::UnbindResources(const int program,
 void
 HdStRenderPassShader::AddBufferBinding(HdBindingRequest const& req)
 {
-    _customBuffers[req.GetName()] = req;
+    auto it = _customBuffers.insert({req.GetName(), req});
+    // Entry already existed and was equal to what we want to set it.
+    if (!it.second && it.first->second == req) {
+        return;
+    }
+    it.first->second = req;
     _hashValid = false;
 }
 

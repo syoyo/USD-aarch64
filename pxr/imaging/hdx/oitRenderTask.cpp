@@ -21,23 +21,17 @@
 // KIND, either express or implied. See the Apache License for the specific
 // language governing permissions and limitations under the Apache License.
 //
-#include "pxr/imaging/glf/glew.h"
+#include "pxr/imaging/garch/glApi.h"
 
-#include "pxr/imaging/hdx/package.h"
 #include "pxr/imaging/hdx/oitRenderTask.h"
+#include "pxr/imaging/hdx/package.h"
 #include "pxr/imaging/hdx/oitBufferAccessor.h"
-#include "pxr/imaging/hdx/tokens.h"
-#include "pxr/imaging/hdx/debugCodes.h"
 
-#include "pxr/imaging/hd/perfLog.h"
 #include "pxr/imaging/hd/renderDelegate.h"
 #include "pxr/imaging/hd/renderIndex.h"
-#include "pxr/imaging/hd/renderPass.h"
-#include "pxr/imaging/hd/renderPassState.h"
 #include "pxr/imaging/hd/rprimCollection.h"
 #include "pxr/imaging/hd/sceneDelegate.h"
 
-#include "pxr/imaging/hdSt/lightingShader.h"
 #include "pxr/imaging/hdSt/renderPassShader.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -54,9 +48,7 @@ HdxOitRenderTask::HdxOitRenderTask(HdSceneDelegate* delegate, SdfPath const& id)
 {
 }
 
-HdxOitRenderTask::~HdxOitRenderTask()
-{
-}
+HdxOitRenderTask::~HdxOitRenderTask() = default;
 
 void
 HdxOitRenderTask::_Sync(
@@ -84,7 +76,7 @@ HdxOitRenderTask::Prepare(HdTaskContext* ctx,
 
         // OIT buffers take up significant GPU resources. Skip if there are no
         // oit draw items (i.e. no translucent or volumetric draw items)
-        if (_GetDrawItemCount() > 0) {
+        if (HdxRenderTask::_HasDrawItems()) {
             HdxOitBufferAccessor(ctx).RequestOitBuffers();
         }
     }
@@ -97,7 +89,7 @@ HdxOitRenderTask::Execute(HdTaskContext* ctx)
     HF_MALLOC_TAG_FUNCTION();
 
     if (!_isOitEnabled) return;
-    if (_GetDrawItemCount() == 0) return;
+    if (!HdxRenderTask::_HasDrawItems()) return;
 
     //
     // Pre Execute Setup
@@ -105,6 +97,7 @@ HdxOitRenderTask::Execute(HdTaskContext* ctx)
 
     HdxOitBufferAccessor oitBufferAccessor(ctx);
 
+    oitBufferAccessor.RequestOitBuffers();
     oitBufferAccessor.InitializeOitBuffersIfNecessary();
 
     HdRenderPassStateSharedPtr renderPassState = _GetRenderPassState(ctx);
@@ -116,7 +109,7 @@ HdxOitRenderTask::Execute(HdTaskContext* ctx)
         return;
     }
 
-    extendedState->SetOverrideShader(HdStShaderCodeSharedPtr());
+    extendedState->SetUseSceneMaterials(true);
 
     if (!oitBufferAccessor.AddOitBufferBindings(
             _oitTranslucentRenderPassShader)) {
@@ -152,7 +145,8 @@ HdxOitRenderTask::Execute(HdTaskContext* ctx)
     //
     extendedState->SetRenderPassShader(_oitOpaqueRenderPassShader);
     renderPassState->SetEnableDepthMask(true);
-    renderPassState->SetColorMask(HdRenderPassState::ColorMaskRGBA);
+    renderPassState->SetColorMasks({HdRenderPassState::ColorMaskRGBA});
+
     HdxRenderTask::Execute(ctx);
 
     //
@@ -160,7 +154,7 @@ HdxOitRenderTask::Execute(HdTaskContext* ctx)
     //
     extendedState->SetRenderPassShader(_oitTranslucentRenderPassShader);
     renderPassState->SetEnableDepthMask(false);
-    renderPassState->SetColorMask(HdRenderPassState::ColorMaskNone);
+    renderPassState->SetColorMasks({HdRenderPassState::ColorMaskNone});
     HdxRenderTask::Execute(ctx);
 
     //

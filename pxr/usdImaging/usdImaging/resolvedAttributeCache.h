@@ -113,7 +113,7 @@ public:
     {
         TRACE_FUNCTION();
         if (!prim.GetPath().HasPrefix(_rootPath) 
-            && !prim.IsInMaster()) {
+            && !prim.IsInPrototype()) {
             TF_CODING_ERROR("Attempt to get value for: %s "
                             "which is not within the specified root: %s",
                             prim.GetPath().GetString().c_str(),
@@ -134,7 +134,7 @@ public:
 
     /// Clears all pre-cached values.
     void Clear() {
-        _cache.clear();
+        WorkSwapDestroyAsync(_cache);
         _cacheVersion = _GetInitialCacheVersion();
     }
 
@@ -403,7 +403,7 @@ UsdImaging_ResolvedAttributeCache<Strategy, ImplData>::_GetValue(
     static value_type const default_ = Strategy::MakeDefault();
 
     // Base case.
-    if (!prim || prim.IsMaster() || prim.GetPath() == _rootPath)
+    if (!prim || prim.IsPrototype() || prim.GetPath() == _rootPath)
         return &default_;
 
     _Entry* entry = _GetCacheEntryForPrim(prim);
@@ -759,7 +759,7 @@ typedef UsdImaging_ResolvedAttributeCache<UsdImaging_DrawModeStrategy>
 
 struct UsdImaging_DrawModeStrategy
 {
-    typedef TfToken value_type; // origin, bounds, cards, default
+    typedef TfToken value_type; // origin, bounds, cards, default, inherited
     typedef UsdAttributeQuery query_type;
 
     static
@@ -780,11 +780,22 @@ struct UsdImaging_DrawModeStrategy
             UsdPrim prim,
             query_type const* query)
     {
-        value_type v = UsdGeomTokens->default_;
-        if (*query && query->Get(&v)) {
+        // No attribute defined means inherited, means refer to the parent.
+        // Any defined attribute overrides parent opinion.
+        // If the drawMode is inherited all the way to the root of the scene,
+        // that means "default".
+        value_type v = UsdGeomTokens->inherited;
+        if (*query) {
+            query->Get(&v);
+        }
+        if (v != UsdGeomTokens->inherited) {
             return v;
         }
-        return *owner->_GetValue(prim.GetParent());
+        v = *owner->_GetValue(prim.GetParent());
+        if (v == UsdGeomTokens->inherited) {
+            return UsdGeomTokens->default_;
+        }
+        return v;
     }
 
     static
@@ -960,6 +971,15 @@ struct UsdImaging_CoordSysBindingStrategy
                 }
                 for (auto const& binding:
                      query->coordSysAPI.GetLocalBindings()) {
+                    if (!prim.GetStage()->GetPrimAtPath(
+                        binding.coordSysPrimPath).IsValid()) {
+                        // The target xform prim does not exist, so ignore
+                        // this coord sys binding.
+                        TF_WARN("UsdImaging: Ignoring coordinate system "
+                                "binding to non-existent prim <%s>\n",
+                                binding.coordSysPrimPath.GetText());
+                        continue;
+                    }
                     bool found = false;
                     for (size_t i=0, n=hdIds.size(); i<n; ++i) {
                         if (usdBindings[i].name == binding.name) {

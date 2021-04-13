@@ -31,11 +31,9 @@ pxr_library(hdx
         hgiInterop
         cameraUtil
         sdf
-        ${GLEW_LIBRARY}
         ${optionalLibs}
 
     INCLUDE_DIRS
-        ${GLEW_INCLUDE_DIR}
         ${optionalIncludeDirs}
 
     PUBLIC_CLASSES
@@ -43,9 +41,8 @@ pxr_library(hdx
         colorizeSelectionTask
         colorChannelTask
         colorCorrectionTask
-        drawTargetRenderPass
         drawTargetTask
-        drawTargetResolveTask
+        freeCameraSceneDelegate
         fullscreenShader
         hgiConversions
         oitBufferAccessor
@@ -66,6 +63,7 @@ pxr_library(hdx
         taskController
         tokens
         types
+        visualizeAovTask
 
     PUBLIC_HEADERS
         shadowMatrixComputation.h
@@ -84,18 +82,24 @@ pxr_library(hdx
         shaders/colorChannel.glslfx
         shaders/colorCorrection.glslfx
         shaders/fullscreen.glslfx
+        shaders/oitResolveImageShader.glslfx
+        shaders/outline.glslfx
         shaders/renderPass.glslfx
-        shaders/renderPassShader.glslfx
+        shaders/renderPassColorShader.glslfx
+        shaders/renderPassColorAndSelectionShader.glslfx
+        shaders/renderPassColorWithOccludedSelectionShader.glslfx
         shaders/renderPassIdShader.glslfx
         shaders/renderPassPickingShader.glslfx
-        shaders/renderPassShadowShader.glslfx
-        shaders/selection.glslfx
         shaders/renderPassOitShader.glslfx
         shaders/renderPassOitOpaqueShader.glslfx
         shaders/renderPassOitVolumeShader.glslfx
-        shaders/oitResolveImageShader.glslfx
-        shaders/outline.glslfx
+        shaders/renderPassShadowShader.glslfx
+        shaders/selection.glslfx
+        shaders/visualize.glslfx
         textures/StinsonBeach.exr
+
+    DOXYGEN_FILES
+        overview.dox
 )
 
 if (X11_FOUND)
@@ -202,7 +206,7 @@ pxr_build_test(testHdxUnpickablesAsOccluders
         unitTestUtils.cpp
         testenv/testHdxUnpickablesAsOccluders.cpp
 )
-pxr_build_test(testHdxPickSubprims
+pxr_build_test(testHdxPickTarget
     LIBRARIES
         hdx
         hd
@@ -214,6 +218,20 @@ pxr_build_test(testHdxPickSubprims
         tf
     CPPFILES
         unitTestUtils.cpp
-        testenv/testHdxPickSubprims.cpp
+        testenv/testHdxPickTarget.cpp
+)
+pxr_build_test(testHdxPickResolveMode
+    LIBRARIES
+        hdx
+        hd
+        hdSt
+        sdf
+        glf
+        garch
+        arch
+        tf
+    CPPFILES
+        unitTestUtils.cpp
+        testenv/testHdxPickResolveMode.cpp
 )
 endif()

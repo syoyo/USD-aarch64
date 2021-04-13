@@ -16,6 +16,27 @@ if (OPENSUBDIV_HAS_GLSL_COMPUTE)
     add_definitions(-DOPENSUBDIV_HAS_GLSL_COMPUTE)
 endif()
 
+set(optionalLibs "")
+set(optionalIncludeDirs "")
+set(optionalPublicClasses "")
+set(optionalPrivateClasses "")
+if (${PXR_ENABLE_MATERIALX_SUPPORT})
+    add_definitions(-DPXR_MATERIALX_STDLIB_DIR="${MATERIALX_STDLIB_DIR}")
+    add_definitions(-DPXR_MATERIALX_RESOURCE_DIR="${MATERIALX_RESOURCE_DIR}")
+
+    list(APPEND optionalLibs ${MATERIALX_LIBRARIES})
+    list(APPEND optionalIncludeDirs ${MATERIALX_INCLUDE_DIRS})
+    list(APPEND optionalPrivateClasses
+         materialXFilter
+         materialXShaderGen
+    )
+endif()
+if (PXR_ENABLE_PTEX_SUPPORT)
+    list(APPEND optionalLibs ${PTEX_LIBRARY})
+    list(APPEND optionalIncludeDirs ${PTEX_INCLUDE_DIR})
+    list(APPEND optionalPublicClasses ptexMipmapTextureLoader)
+endif()
+
 pxr_library(hdSt
     LIBRARIES
         hio
@@ -26,19 +47,18 @@ pxr_library(hdSt
         sdr
         tf
         trace
-        ${GLEW_LIBRARY}
         ${OPENSUBDIV_LIBRARIES}
+        ${optionalLibs}
 
     INCLUDE_DIRS
-        ${GLEW_INCLUDE_DIR}
         ${OPENSUBDIV_INCLUDE_DIR}
+        ${optionalIncludeDirs}
 
     PUBLIC_CLASSES
         basisCurves
-        bufferArrayRangeGL
-        bufferResourceGL
+        bufferArrayRange
+        bufferResource
         commandBuffer
-        computeShader
         copyComputation
         debugCodes
         dispatchBuffer
@@ -46,8 +66,6 @@ pxr_library(hdSt
         drawItem
         drawItemInstance
         drawTarget
-        drawTargetAttachmentDesc
-        drawTargetAttachmentDescArray
         drawTargetRenderPassState
         dynamicUvTextureObject
         extComputation
@@ -57,6 +75,7 @@ pxr_library(hdSt
         extCompGpuPrimvarBufferSource
         fallbackLightingShader
         field
+        fieldSubtextureIdentifier
         flatNormals
         geometricShader
         glConversions
@@ -64,6 +83,7 @@ pxr_library(hdSt
         glslProgram
         glUtils
         hgiConversions
+        hioConversions
         imageShaderRenderPass
         instancer
         interleavedMemoryManager
@@ -74,15 +94,16 @@ pxr_library(hdSt
         mesh
         mixinShader
         package
-        persistentBuffer
         points
+        primUtils
+        ptexTextureObject
         renderBuffer
         renderDelegate
+        renderParam
         renderPass
         renderPassShader
         renderPassState
         resourceRegistry
-        rprimUtils
         samplerObject
         samplerObjectRegistry
         shaderCode
@@ -90,36 +111,39 @@ pxr_library(hdSt
         smoothNormals
         subtextureIdentifier
         surfaceShader
-        texture
         textureBinder
+        textureCpuData
         textureHandle
         textureHandleRegistry
         textureIdentifier
         textureObject
         textureObjectRegistry
-        textureResource
-        textureResourceHandle
+        textureUtils
         tokens
+        udimTextureObject
         unitTestGLDrawing
         vboMemoryManager
         vboSimpleMemoryManager
         volume
+        ${optionalPublicClasses}
 
     PUBLIC_HEADERS
         api.h
+        dynamicUvTextureImplementation.h
 
     PRIVATE_CLASSES
+        assetUvTextureCpuData
         basisCurvesComputations
         basisCurvesShaderKey
         basisCurvesTopology
         codeGen
         cullingShaderKey
         drawBatch
-        drawTargetTextureResource
+        extCompComputeShader
+        fieldTextureCpuData
         imageShaderShaderKey
         immediateDrawBatch
         indirectDrawBatch
-        materialBufferSourceAndTextureHelper
         materialParam
         meshShaderKey
         meshTopology 
@@ -130,10 +154,10 @@ pxr_library(hdSt
         subdivision
         subdivision3
         triangulate
-        unitTestDelegate
         unitTestHelper
         volumeShader
         volumeShaderKey
+        ${optionalPrivateClasses}
 
     RESOURCE_FILES
         plugInfo.json
@@ -151,6 +175,7 @@ pxr_library(hdSt
         shaders/lighting.glslfx
         shaders/lightingIntegrationShader.glslfx
         shaders/mesh.glslfx
+        shaders/meshFaceCull.glslfx
         shaders/meshNormal.glslfx
         shaders/meshWire.glslfx
         shaders/points.glslfx
@@ -162,6 +187,9 @@ pxr_library(hdSt
         shaders/terminals.glslfx
         shaders/visibility.glslfx
         shaders/volume.glslfx
+
+    DOXYGEN_FILES
+        overview.dox
 )
 
 if (X11_FOUND OR APPLE)

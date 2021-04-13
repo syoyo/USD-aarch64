@@ -41,6 +41,7 @@ PXR_NAMESPACE_OPEN_SCOPE
     (imagerVersion)             \
     (lightingContext)           \
     (lightingShader)            \
+    (occludedSelectionOpacity)  \
     (oitCounter)                \
     (oitData)                   \
     (oitDepth)                  \
@@ -91,15 +92,14 @@ TF_DECLARE_PUBLIC_TOKENS(HdxTokens, HDX_API, HDX_TOKENS);
 
 TF_DECLARE_PUBLIC_TOKENS(HdxPrimitiveTokens, HDX_API, HDX_PRIMITIVE_TOKENS);
 
-#define HDX_OPTION_TOKENS    \
-    (taskSetAlphaToCoverage)
-
-TF_DECLARE_PUBLIC_TOKENS(HdxOptionTokens, HDX_API, HDX_OPTION_TOKENS);
+// inCameraGuide is for guides for a camera that only show up when looking
+// through that camera.
 
 #define HDX_RENDERTAG_TOKENS   \
     (renderingGuide)            \
     (label)                     \
     (cameraGuide)               \
+    (inCameraGuide)             \
     (streamline)                \
     (interactiveOnlyGeom)       \
     (path)

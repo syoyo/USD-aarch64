@@ -86,8 +86,6 @@ pxr_library(hd
         sprim
         strategyBase
         task
-        texture
-        textureResource
         timeSampleArray
         tokens
         topology
@@ -111,5 +109,19 @@ pxr_library(hd
 
     RESOURCE_FILES
         plugInfo.json
+
+    DOXYGEN_FILES
+        overview.dox
 )
 
+pxr_build_test(testHdExtComputationUtils
+    LIBRARIES
+        hd
+
+    CPPFILES
+        testenv/testHdExtComputationUtils.cpp
+)
+
+pxr_register_test(testHdExtComputationUtils
+    COMMAND "${CMAKE_INSTALL_PREFIX}/tests/testHdExtComputationUtils"
+)

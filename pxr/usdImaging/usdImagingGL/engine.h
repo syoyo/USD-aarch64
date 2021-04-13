@@ -44,11 +44,9 @@
 
 #include "pxr/imaging/hdx/selectionTracker.h"
 #include "pxr/imaging/hdx/renderSetupTask.h"
-#include "pxr/imaging/hdx/pickTask.h"
 
 #include "pxr/imaging/hgi/hgi.h"
 
-#include "pxr/imaging/glf/drawTarget.h"
 #include "pxr/imaging/glf/simpleLight.h"
 #include "pxr/imaging/glf/simpleMaterial.h"
 
@@ -142,9 +140,6 @@ public:
     void Render(const UsdPrim& root, 
                 const UsdImagingGLRenderParams &params);
 
-    USDIMAGINGGL_API
-    void InvalidateBuffers();
-
     /// Returns true if the resulting image is fully converged.
     /// (otherwise, caller may need to call Render() again to refine the result)
     USDIMAGINGGL_API
@@ -172,9 +167,41 @@ public:
     /// @{
     // ---------------------------------------------------------------------
     
+    /// Scene camera API
+    /// Set the scene camera path to use for rendering.
+    USDIMAGINGGL_API
+    void SetCameraPath(SdfPath const& id);
+
+    /// Determines how the filmback of the camera is mapped into
+    /// the pixels of the render buffer and what pixels of the render
+    /// buffer will be rendered into.
+    USDIMAGINGGL_API
+    void SetFraming(CameraUtilFraming const& framing);
+
+    /// Specifies whether to force a window policy when conforming
+    /// the frustum of the camera to match the display window of
+    /// the camera framing.
+    ///
+    /// If set to {false, ...}, the window policy of the specified camera
+    /// will be used.
+    ///
+    /// Note: std::pair<bool, ...> is used instead of std::optional<...>
+    /// because the latter is only available in C++17 or later.
+    USDIMAGINGGL_API
+    void SetOverrideWindowPolicy(
+        const std::pair<bool, CameraUtilConformWindowPolicy> &policy);
+
+    /// Set the size of the render buffers baking the AOVs.
+    /// GUI applications should set this to the size of the window.
+    ///
+    USDIMAGINGGL_API
+    void SetRenderBufferSize(GfVec2i const& size);
+
     /// Set the viewport to use for rendering as (x,y,w,h), where (x,y)
     /// represents the lower left corner of the viewport rectangle, and (w,h)
     /// is the width and height of the viewport in pixels.
+    ///
+    /// \deprecated Use SetFraming and SetRenderBufferSize instead.
     USDIMAGINGGL_API
     void SetRenderViewport(GfVec4d const& viewport);
 
@@ -183,11 +210,6 @@ public:
     /// See comment in SetCameraState for the free cam.
     USDIMAGINGGL_API
     void SetWindowPolicy(CameraUtilConformWindowPolicy policy);
-    
-    /// Scene camera API
-    /// Set the scene camera path to use for rendering.
-    USDIMAGINGGL_API
-    void SetCameraPath(SdfPath const& id);
 
     /// Free camera API
     /// Set camera framing state directly (without pointing to a camera on the 
@@ -271,7 +293,8 @@ public:
     ///
     /// Returns whether a hit occurred and if so, \p outHitPoint will contain
     /// the intersection point in world space (i.e. \p projectionMatrix and
-    /// \p viewMatrix factored back out of the result).
+    /// \p viewMatrix factored back out of the result), and \p outHitNormal
+    /// will contain the world space normal at that point.
     ///
     /// \p outHitPrimPath will point to the gprim selected by the pick.
     /// \p outHitInstancerPath will point to the point instancer (if applicable)
@@ -285,6 +308,7 @@ public:
         const UsdPrim& root,
         const UsdImagingGLRenderParams &params,
         GfVec3d *outHitPoint,
+        GfVec3d *outHitNormal,
         SdfPath *outHitPrimPath = NULL,
         SdfPath *outHitInstancerPath = NULL,
         int *outHitInstanceIndex = NULL,
@@ -355,7 +379,21 @@ public:
     /// Sets a renderer setting's value.
     USDIMAGINGGL_API
     void SetRendererSetting(TfToken const& id,
-                                    VtValue const& value);
+                            VtValue const& value);
+
+    /// Enable / disable presenting the render to bound framebuffer.
+    /// An application may choose to manage the AOVs that are rendered into
+    /// itself and skip the engine's presentation.
+    USDIMAGINGGL_API
+    void SetEnablePresentation(bool enabled);
+
+    /// The destination API (e.g., OpenGL, see hgiInterop for details) and
+    /// framebuffer that the AOVs are presented into. The framebuffer
+    /// is a VtValue that encoding a framebuffer in a destination API
+    /// specific way.
+    /// E.g., a uint32_t (aka GLuint) for framebuffer object for OpenGL.
+    USDIMAGINGGL_API
+    void SetPresentationOutput(TfToken const &api, VtValue const &framebuffer);
 
     /// @}
 
@@ -455,17 +493,15 @@ protected:
     void _Execute(const UsdImagingGLRenderParams &params,
                   HdTaskSharedPtrVector tasks);
 
-    // These functions factor batch preparation into separate steps so they
-    // can be reused by both the vectorized and non-vectorized API.
     USDIMAGINGGL_API
-    bool _CanPrepareBatch(const UsdPrim& root, 
-        const UsdImagingGLRenderParams& params);
+    bool _CanPrepare(const UsdPrim& root);
     USDIMAGINGGL_API
-    void _PreSetTime(const UsdPrim& root, 
-        const UsdImagingGLRenderParams& params);
+    void _PreSetTime(const UsdImagingGLRenderParams& params);
     USDIMAGINGGL_API
-    void _PostSetTime(const UsdPrim& root, 
-        const UsdImagingGLRenderParams& params);
+    void _PostSetTime(const UsdImagingGLRenderParams& params);
+
+    USDIMAGINGGL_API
+    void _PrepareRender(const UsdImagingGLRenderParams& params);
 
     // Create a hydra collection given root paths and render params.
     // Returns true if the collection was updated.
@@ -521,6 +557,8 @@ protected:
     HgiUniquePtr _hgi;
     // Similar for HdDriver.
     HdDriver _hgiDriver;
+
+    VtValue _userFramebuffer;
 
 protected:
     HdPluginRenderDelegateUniqueHandle _renderDelegate;

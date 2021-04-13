@@ -38,7 +38,7 @@ class HdStDrawItem;
 class HdStVolume final : public HdVolume {
 public:
     HDST_API
-    HdStVolume(SdfPath const& id, SdfPath const& instancerId = SdfPath());
+    HdStVolume(SdfPath const& id);
     HDST_API
     ~HdStVolume() override;
 
@@ -51,11 +51,18 @@ public:
               HdDirtyBits*     dirtyBits,
               TfToken const  &reprToken) override;
 
+    HDST_API
+    void Finalize(HdRenderParam *renderParam) override;
+
     /// Default step size used for raymarching
     static const float defaultStepSize;
 
     /// Default step size used for raymarching for lighting computation
     static const float defaultStepSizeLighting;
+
+    /// Default memory limit for a field texture (in Mb) if not
+    /// overridden by field prim with textureMemory.
+    static const float defaultMaxTextureMemoryPerField;
 
 protected:
     void _InitRepr(TfToken const &reprToken,
@@ -64,13 +71,13 @@ protected:
     HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
 
     void _UpdateRepr(HdSceneDelegate *sceneDelegate,
+                     HdRenderParam *renderParam,
                      TfToken const &reprToken,
                      HdDirtyBits *dirtyBitsState);
 
 private:
-    const TfToken& _GetMaterialTag(const HdRenderIndex &renderIndex) const;
-
     void _UpdateDrawItem(HdSceneDelegate *sceneDelegate,
+                         HdRenderParam *renderParam,
                          HdStDrawItem *drawItem,
                          HdDirtyBits *dirtyBits);
 

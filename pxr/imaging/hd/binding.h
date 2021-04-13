@@ -32,6 +32,8 @@
 #include "pxr/imaging/hd/bufferResource.h"
 #include "pxr/imaging/hd/bufferArrayRange.h"
 
+#include "pxr/base/tf/hash.h"
+
 PXR_NAMESPACE_OPEN_SCOPE
 
 
@@ -60,7 +62,6 @@ public:
                 BINDLESS_UNIFORM,    //
                 UNIFORM,             //
                 UNIFORM_ARRAY,       //
-                TBO,                 //
 
                 // shader parameter bindings
                 FALLBACK,             // fallback value
@@ -246,6 +247,19 @@ public:
         return _dataType;
     }
 
+    // ---------------------------------------------------------------------- //
+    /// \name Comparison
+    // ---------------------------------------------------------------------- //
+    HD_API
+    bool operator==(HdBindingRequest const &other) const;
+
+    HD_API
+    bool operator!=(HdBindingRequest const &other) const;
+
+    // ---------------------------------------------------------------------- //
+    /// \name Hash
+    // ---------------------------------------------------------------------- //
+
     /// Returns the hash corresponding to this buffer request.
     ///
     /// Note that this hash captures the structural state of the request, not
@@ -253,6 +267,15 @@ public:
     /// affect hash, but changing the BAR pointer will.
     HD_API
     size_t ComputeHash() const;
+
+    // TfHash support.
+    template <class HashState>
+    friend void TfHashAppend(HashState &h, HdBindingRequest const &br) {
+        h.Append(br._name,
+                 br._bindingType,
+                 br._dataType,
+                 br._isInterleaved);
+    }
 
 private:
     // This class unfortunately represents several concepts packed into a single

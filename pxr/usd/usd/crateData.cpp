@@ -206,18 +206,31 @@ public:
         return true;
     }
 
-    inline bool _GetTargetOrConnectionListOp(
-        SdfPath const &path, SdfPathListOp *listOp) const {
+    // Return either TargetPaths or ConnectionPaths as a VtValue.  If
+    // specTypeOut is not null, set it to SdfSpecTypeRelationship if we find
+    // TargetPaths, otherwise to SdfSpecTypeAttribute if we find
+    // ConnectionPaths, otherwise SdfSpecTypeUnknown.
+    inline VtValue
+    _GetTargetOrConnectionListOpValue(
+        SdfPath const &path, SdfSpecType *specTypeOut = nullptr) const {
+        VtValue targetPaths;
+        SdfSpecType specType = SdfSpecTypeUnknown;
         if (path.IsPrimPropertyPath()) {
-            VtValue targetPaths;
-            if ((Has(path, SdfFieldKeys->TargetPaths, &targetPaths) ||
-                 Has(path, SdfFieldKeys->ConnectionPaths, &targetPaths)) &&
-                targetPaths.IsHolding<SdfPathListOp>()) {
-                targetPaths.UncheckedSwap(*listOp);
-                return true;
+            if (Has(path, SdfFieldKeys->TargetPaths, &targetPaths)) {
+                specType = SdfSpecTypeRelationship;
+            }
+            else if (Has(path, SdfFieldKeys->ConnectionPaths, &targetPaths)) {
+                specType = SdfSpecTypeAttribute;
+            }
+            if (!targetPaths.IsHolding<SdfPathListOp>()) {
+                specType = SdfSpecTypeUnknown;
+                targetPaths = VtValue();
             }
         }
-        return false;
+        if (specTypeOut) {
+            *specTypeOut = specType;
+        }
+        return targetPaths;
     }
     
     inline bool _HasTargetOrConnectionSpec(SdfPath const &path) const {
@@ -228,8 +241,10 @@ public:
         using std::find;
         SdfPath parentPath = path.GetParentPath();
         SdfPath targetPath = path.GetTargetPath();
-        SdfPathListOp listOp;
-        if (_GetTargetOrConnectionListOp(parentPath, &listOp)) {
+        VtValue listOpVal = _GetTargetOrConnectionListOpValue(parentPath);
+        if (!listOpVal.IsEmpty()) {
+            SdfPathListOp const &listOp =
+                listOpVal.UncheckedGet<SdfPathListOp>();
             if (listOp.IsExplicit()) {
                 auto const &items = listOp.GetExplicitItems();
                 return find(
@@ -385,7 +400,10 @@ public:
                 specType == SdfSpecTypeRelationship) {
                 SdfPathListOp listOp;
                 SdfPathVector specs;
-                if (_GetTargetOrConnectionListOp(path, &listOp)) {
+                VtValue listOpVal = _GetTargetOrConnectionListOpValue(path);
+                if (!listOpVal.IsEmpty()) {
+                    SdfPathListOp const &listOp =
+                        listOpVal.UncheckedGet<SdfPathListOp>();
                     if (listOp.IsExplicit()) {
                         specs = listOp.GetExplicitItems();
                     }
@@ -456,6 +474,11 @@ public:
             }
             return true;
         }
+        else if (ARCH_UNLIKELY(
+                     field == SdfChildrenKeys->ConnectionChildren ||
+                     field == SdfChildrenKeys->RelationshipTargetChildren)) {
+            return _HasConnectionOrTargetChildren(path, field, value);
+        }
         return false;
     }
 
@@ -482,6 +505,45 @@ public:
             }
             return true;
         }
+        else if (ARCH_UNLIKELY(
+                     field == SdfChildrenKeys->ConnectionChildren ||
+                     field == SdfChildrenKeys->RelationshipTargetChildren)) {
+            return _HasConnectionOrTargetChildren(path, field, value);
+        }
+        return false;
+    }
+
+    bool _HasConnectionOrTargetChildren(const SdfPath &path,
+                                        const TfToken &field,
+                                        SdfAbstractDataValue *value) const {
+        VtValue listOpVal = _GetTargetOrConnectionListOpValue(path);
+        if (!listOpVal.IsEmpty()) {
+            if (value) {
+                SdfPathListOp const &plo =
+                    listOpVal.UncheckedGet<SdfPathListOp>();
+                SdfPathVector paths;
+                plo.ApplyOperations(&paths);
+                value->StoreValue(paths);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    bool _HasConnectionOrTargetChildren(const SdfPath &path,
+                                        const TfToken &field,
+                                        VtValue *value) const {
+        VtValue listOpVal = _GetTargetOrConnectionListOpValue(path);
+        if (!listOpVal.IsEmpty()) {
+            if (value) {
+                SdfPathListOp const &plo =
+                    listOpVal.UncheckedGet<SdfPathListOp>();
+                SdfPathVector paths;
+                plo.ApplyOperations(&paths);
+                *value = paths;
+            }
+            return true;
+        }
         return false;
     }
 
@@ -490,6 +552,16 @@ public:
         VtValue result;
         Has(path, field, &result);
         return result;
+    }
+
+    inline std::type_info const &GetTypeid(const SdfPath& path,
+                                           const TfToken& field) const {
+        if (VtValue const *fieldValue = _GetFieldValue(path, field)) {
+            return fieldValue->IsHolding<ValueRep>() ?
+                _crateFile->GetTypeid(fieldValue->UncheckedGet<ValueRep>()) :
+                fieldValue->GetTypeid();
+        }
+        return typeid(void);
     }
 
     template <class Data>
@@ -501,6 +573,19 @@ public:
             out.resize(fields.size());
             for (size_t j=0, jEnd = fields.size(); j != jEnd; ++j) {
                 out[j] = fields[j].first;
+            }
+            // If 'path' is a property path, we may have to "spoof" the
+            // existence of connectionChildren or targetChildren.
+            if (path.IsPrimPropertyPath()) {
+                SdfSpecType specType = SdfSpecTypeUnknown;
+                VtValue listOpVal = 
+                    _GetTargetOrConnectionListOpValue(path, &specType);
+                if (specType == SdfSpecTypeRelationship) {
+                    out.push_back(SdfChildrenKeys->RelationshipTargetChildren);
+                }
+                else if (specType == SdfSpecTypeAttribute) {
+                    out.push_back(SdfChildrenKeys->ConnectionChildren);
+                }
             }
         }
     }
@@ -528,6 +613,13 @@ public:
                 return;
             }
             lastSet = &(*i);
+        }
+
+        if (fieldName == SdfChildrenKeys->ConnectionChildren ||
+            fieldName == SdfChildrenKeys->RelationshipTargetChildren) {
+            // Silently do nothing -- we synthesize these fields from the list
+            // ops.
+            return;
         }
         
         VtValue const *valPtr = &value;
@@ -1272,6 +1364,12 @@ VtValue
 Usd_CrateData::Get(const SdfPath& path, const TfToken & field) const
 {
     return _impl->Get(path, field);
+}
+
+std::type_info const &
+Usd_CrateData::GetTypeid(const SdfPath& path, const TfToken& field) const
+{
+    return _impl->GetTypeid(path, field);
 }
 
 std::vector<TfToken>

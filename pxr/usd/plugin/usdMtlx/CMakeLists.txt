@@ -18,6 +18,7 @@ pxr_plugin(usdMtlx
         usdGeom
         usdShade
         usdUI
+        usdUtils
         ${MATERIALX_LIBRARIES}
 
     INCLUDE_DIRS
@@ -50,6 +51,9 @@ pxr_plugin(usdMtlx
 
     RESOURCE_FILES
         plugInfo.json
+
+    DOXYGEN_FILES
+        overview.dox
 )
 
 pxr_test_scripts(

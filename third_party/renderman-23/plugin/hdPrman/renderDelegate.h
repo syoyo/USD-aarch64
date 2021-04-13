@@ -87,12 +87,10 @@ public:
                 HdRenderIndex *index,
                 HdRprimCollection const& collection) override;
     HDPRMAN_API virtual HdInstancer *CreateInstancer(HdSceneDelegate *delegate,
-                                         SdfPath const& id,
-                                         SdfPath const& instancerId) override;
+                                         SdfPath const& id) override;
     HDPRMAN_API virtual void DestroyInstancer(HdInstancer *instancer) override;
     HDPRMAN_API virtual HdRprim *CreateRprim(TfToken const& typeId,
-                                 SdfPath const& rprimId,
-                                 SdfPath const& instancerId) override;
+                                 SdfPath const& rprimId) override;
     HDPRMAN_API virtual void DestroyRprim(HdRprim *rPrim) override;
     HDPRMAN_API virtual HdSprim *CreateSprim(TfToken const& typeId,
                                  SdfPath const& sprimId) override;
@@ -106,7 +104,11 @@ public:
     HDPRMAN_API virtual void DestroyBprim(HdBprim *bPrim) override;
     HDPRMAN_API virtual void CommitResources(HdChangeTracker *tracker) override;
     HDPRMAN_API virtual TfToken GetMaterialBindingPurpose() const override;
+#if HD_API_VERSION < 41
     HDPRMAN_API virtual TfToken GetMaterialNetworkSelector() const override;
+#else
+    HDPRMAN_API virtual TfTokenVector GetMaterialRenderContexts() const override;
+#endif
     HDPRMAN_API virtual TfTokenVector GetShaderSourceTypes() const override;
 
     HDPRMAN_API virtual void SetRenderSetting(TfToken const &key, 

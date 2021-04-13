@@ -97,7 +97,7 @@ class TestUsdAppliedAPISchemas(unittest.TestCase):
             "TestWithFallbackAppliedSchema")
         self.assertTrue(primDef)
         self.assertEqual(primDef.GetAppliedAPISchemas(), [
-            "TestMultiApplyAPI:fallback", "TestSingleApplyAPI"])
+            "TestSingleApplyAPI", "TestMultiApplyAPI:fallback"])
         self.assertEqual(sorted(primDef.GetPropertyNames()), [
             "multi:fallback:bool_attr", 
             "multi:fallback:relationship",
@@ -306,7 +306,7 @@ class TestUsdAppliedAPISchemas(unittest.TestCase):
         typedPrim = stage.DefinePrim("/TypedPrim", "TestWithFallbackAppliedSchema")
         self.assertEqual(typedPrim.GetTypeName(), 'TestWithFallbackAppliedSchema')
         self.assertEqual(typedPrim.GetAppliedSchemas(), 
-                         ["TestMultiApplyAPI:fallback", "TestSingleApplyAPI"])
+                         ["TestSingleApplyAPI", "TestMultiApplyAPI:fallback"])
         self.assertEqual(typedPrim.GetPrimTypeInfo().GetTypeName(), 
                          'TestWithFallbackAppliedSchema')
         # Note that prim type info does NOT contain the fallback applied API
@@ -337,7 +337,7 @@ class TestUsdAppliedAPISchemas(unittest.TestCase):
         self.assertEqual(typedPrim.GetTypeName(), 'TestWithFallbackAppliedSchema')
         self.assertEqual(typedPrim.GetAppliedSchemas(), 
             ["TestMultiApplyAPI:garply", 
-             "TestMultiApplyAPI:fallback", "TestSingleApplyAPI"])
+             "TestSingleApplyAPI", "TestMultiApplyAPI:fallback"])
         self.assertEqual(typedPrim.GetPrimTypeInfo().GetTypeName(), 
                          'TestWithFallbackAppliedSchema')
         # Note that prim type info does NOT contain the fallback applied API
@@ -412,7 +412,7 @@ class TestUsdAppliedAPISchemas(unittest.TestCase):
         typedPrim = stage.DefinePrim("/TypedPrim", "TestWithFallbackAppliedSchema")
         self.assertEqual(typedPrim.GetTypeName(), 'TestWithFallbackAppliedSchema')
         self.assertEqual(typedPrim.GetAppliedSchemas(), 
-                         ["TestMultiApplyAPI:fallback", "TestSingleApplyAPI"])
+                         ["TestSingleApplyAPI", "TestMultiApplyAPI:fallback"])
         self.assertEqual(typedPrim.GetPrimTypeInfo().GetTypeName(), 
                          'TestWithFallbackAppliedSchema')
         # Note that prim type info does NOT contain the fallback applied API
@@ -458,7 +458,7 @@ class TestUsdAppliedAPISchemas(unittest.TestCase):
         self.assertEqual(typedPrim.GetTypeName(), 'TestWithFallbackAppliedSchema')
         self.assertEqual(typedPrim.GetAppliedSchemas(), 
             ["TestMultiApplyAPI:fallback", "TestSingleApplyAPI", 
-             "TestMultiApplyAPI:fallback", "TestSingleApplyAPI"])
+             "TestSingleApplyAPI", "TestMultiApplyAPI:fallback"])
         self.assertEqual(typedPrim.GetPrimTypeInfo().GetTypeName(), 
                          'TestWithFallbackAppliedSchema')
         # Note that prim type info does NOT contain the fallback applied API
@@ -513,6 +513,134 @@ class TestUsdAppliedAPISchemas(unittest.TestCase):
         # schemas applied.
         self.assertEqual(typedPrim.GetMetadata("documentation"), 
                          "Test with fallback API schemas")
+
+    def test_TypedPrimsOnStageWithAutoAppliedAPIs(self):
+        """
+        Tests the fallback properties of typed prims on a stage where API
+        schemas are auto applied.
+        """
+        stage = Usd.Stage.CreateInMemory()
+
+        # Add a typed prim that has two types of builtin applied schemas. 
+        # TestMultiApplyAPI:fallback comes from the apiSchemas metadata defined
+        # in TestTypedSchemaForAutoApply's schema definition.
+        # TestSingleApplyAPI and TestMultiApplyAPI:autoFoo come from 
+        # TestTypedSchemaForAutoApply being listed in the "AutoApplyAPISchemas"
+        # plugInfo metadata for both API schemas.
+        # The builtin applied schemas that come from the apiSchemas metadata 
+        # will always be listed before (and be stronger than) any applied 
+        # schemas that come from apiSchemaAutoApplyTo.
+        typedPrim = stage.DefinePrim("/TypedPrim", "TestTypedSchemaForAutoApply")
+        self.assertEqual(typedPrim.GetTypeName(), 'TestTypedSchemaForAutoApply')
+        self.assertEqual(typedPrim.GetAppliedSchemas(), 
+                         ["TestMultiApplyAPI:fallback", 
+                          "TestMultiApplyAPI:autoFoo",
+                          "TestSingleApplyAPI"])
+        self.assertEqual(typedPrim.GetPrimTypeInfo().GetTypeName(), 
+                         'TestTypedSchemaForAutoApply')
+        # Note that prim type info does NOT contain the applied API
+        # schemas from the concrete type's prim definition as these are not part
+        # of the type identity.
+        self.assertEqual(typedPrim.GetPrimTypeInfo().GetAppliedAPISchemas(), [])
+
+        self.assertTrue(typedPrim.HasAPI(self.MultiApplyAPIType))
+        self.assertTrue(typedPrim.HasAPI(self.SingleApplyAPIType))
+        self.assertEqual(typedPrim.GetPropertyNames(), [
+            "multi:autoFoo:bool_attr", 
+            "multi:autoFoo:relationship",
+            "multi:autoFoo:token_attr", 
+            "multi:fallback:bool_attr", 
+            "multi:fallback:relationship",
+            "multi:fallback:token_attr", 
+            "single:bool_attr",
+            "single:relationship", 
+            "single:token_attr", 
+            "testAttr", 
+            "testRel"])
+
+        # Add a concrete typed prim which receives an auto applied API schema.
+        # TestSingleApplyAPI comes from TestTypedSchemaForAutoApplyConcreteBase 
+        # being listed in TestSingleApplyAPI's apiSchemaAutoApplyTo data.
+        typedPrim.SetTypeName("TestTypedSchemaForAutoApplyConcreteBase")
+        self.assertEqual(typedPrim.GetTypeName(), 
+                         'TestTypedSchemaForAutoApplyConcreteBase')
+        self.assertEqual(typedPrim.GetAppliedSchemas(), 
+                         ["TestSingleApplyAPI"])
+        self.assertEqual(typedPrim.GetPrimTypeInfo().GetTypeName(), 
+                         'TestTypedSchemaForAutoApplyConcreteBase')
+        # Note that prim type info does NOT contain the auto applied API
+        # schemas from the concrete type's prim definition as these are not part
+        # of the type identity.
+        self.assertEqual(typedPrim.GetPrimTypeInfo().GetAppliedAPISchemas(), [])
+
+        self.assertTrue(typedPrim.HasAPI(self.SingleApplyAPIType))
+        self.assertEqual(typedPrim.GetPropertyNames(), [
+            "single:bool_attr",
+            "single:relationship", 
+            "single:token_attr", 
+            "testAttr", 
+            "testRel"])
+
+        # Add a concrete typed prim which receives an auto applied API schema
+        # because it is derived from a base class type that does.
+        # TestSingleApplyAPI comes from the base class of this type, 
+        # TestTypedSchemaForAutoApplyConcreteBase, being listed in 
+        # TestSingleApplyAPI's apiSchemaAutoApplyTo data.
+        typedPrim.SetTypeName("TestDerivedTypedSchemaForAutoApplyConcreteBase")
+        self.assertEqual(typedPrim.GetTypeName(), 
+                         'TestDerivedTypedSchemaForAutoApplyConcreteBase')
+        self.assertEqual(typedPrim.GetAppliedSchemas(), 
+                         ["TestSingleApplyAPI"])
+        self.assertEqual(typedPrim.GetPrimTypeInfo().GetTypeName(), 
+                         'TestDerivedTypedSchemaForAutoApplyConcreteBase')
+        # Note that prim type info does NOT contain the auto applied API
+        # schemas from the concrete type's prim definition as these are not part
+        # of the type identity.
+        self.assertEqual(typedPrim.GetPrimTypeInfo().GetAppliedAPISchemas(), [])
+
+        self.assertTrue(typedPrim.HasAPI(self.SingleApplyAPIType))
+        self.assertEqual(typedPrim.GetPropertyNames(), [
+            "single:bool_attr",
+            "single:relationship", 
+            "single:token_attr", 
+            "testAttr", 
+            "testRel"])
+
+        # Add a concrete typed prim which receives an auto applied API schema
+        # because it is derived from a base class type that does.
+        # TestSingleApplyAPI comes from the base class of this type, 
+        # TestTypedSchemaForAutoApplyAbstractBase, being listed in 
+        # TestSingleApplyAPI's apiSchemaAutoApplyTo data. This is different 
+        # from case above in that the base class is an abstract type and cannot
+        # be instantiated as a prim type, but API schemas can still be 
+        # designated to auto apply to abstract types to have the API applied
+        # to prims of all derived types.
+        typedPrim.SetTypeName("TestDerivedTypedSchemaForAutoApplyAbstractBase")
+        self.assertEqual(typedPrim.GetTypeName(), 
+                         'TestDerivedTypedSchemaForAutoApplyAbstractBase')
+        self.assertEqual(typedPrim.GetAppliedSchemas(), ['TestSingleApplyAPI'])
+        self.assertEqual(typedPrim.GetPrimTypeInfo().GetTypeName(), 
+                         'TestDerivedTypedSchemaForAutoApplyAbstractBase')
+        # Note that prim type info does NOT contain the auto applied API
+        # schemas from the concrete type's prim definition as these are not part
+        # of the type identity.
+        self.assertEqual(typedPrim.GetPrimTypeInfo().GetAppliedAPISchemas(), [])
+
+        self.assertTrue(typedPrim.HasAPI(self.SingleApplyAPIType))
+        self.assertEqual(typedPrim.GetPropertyNames(), [
+            "single:bool_attr",
+            "single:relationship", 
+            "single:token_attr", 
+            "testAttr", 
+            "testRel"])
+
+        # Verify that we can get the value of the auto apply API metadata for
+        # TestSingleApplyAPI from the schema registry.
+        self.assertEqual(
+            Usd.SchemaRegistry.GetAutoApplyAPISchemas()['TestSingleApplyAPI'], 
+            ['TestTypedSchemaForAutoApplyConcreteBase',
+             'TestTypedSchemaForAutoApplyAbstractBase',
+             'TestTypedSchemaForAutoApply'])
 
     def test_ApplyRemoveAPI(self):
         """

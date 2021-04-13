@@ -28,38 +28,41 @@
 #include "pxr/imaging/hd/debugCodes.h"
 #include "pxr/imaging/hd/tokens.h"
 
+#include "pxr/base/gf/camera.h"
 #include "pxr/base/gf/frustum.h"
 #include "pxr/base/tf/stringUtils.h"
-
-#include <boost/functional/hash.hpp>
 
 PXR_NAMESPACE_OPEN_SCOPE
 
 HdRenderPassState::HdRenderPassState()
     : _camera(nullptr)
     , _viewport(0, 0, 1, 1)
+    , _overrideWindowPolicy{false, CameraUtilFit}
     , _cullMatrix(1)
     , _worldToViewMatrix(1)
     , _projectionMatrix(1)
 
     , _overrideColor(0.0f, 0.0f, 0.0f, 0.0f)
     , _wireframeColor(0.0f, 0.0f, 0.0f, 0.0f)
-    , _maskColor(1.0f, 0.0f, 0.0f, 1.0f)
-    , _indicatorColor(0.0f, 1.0f, 0.0f, 1.0f)
     , _pointColor(0.0f, 0.0f, 0.0f, 1.0f)
     , _pointSize(3.0)
-    , _pointSelectedSize(3.0)
     , _lightingEnabled(true)
+
+    , _maskColor(1.0f, 0.0f, 0.0f, 1.0f)
+    , _indicatorColor(0.0f, 1.0f, 0.0f, 1.0f)
+    , _pointSelectedSize(3.0)
 
     , _alphaThreshold(0.5f)
     , _tessLevel(32.0)
     , _drawRange(0.9, -1.0)
+
     , _depthBiasUseDefault(true)
     , _depthBiasEnabled(false)
     , _depthBiasConstantFactor(0.0f)
     , _depthBiasSlopeFactor(1.0f)
     , _depthFunc(HdCmpFuncLEqual)
     , _depthMaskEnabled(true)
+    , _depthTestEnabled(true)
     , _cullStyle(HdCullStyleNothing)
     , _stencilFunc(HdCmpFuncAlways)
     , _stencilRef(0)
@@ -77,18 +80,14 @@ HdRenderPassState::HdRenderPassState()
     , _blendAlphaDstFactor(HdBlendFactorZero)
     , _blendConstantColor(0.0f, 0.0f, 0.0f, 0.0f)
     , _blendEnabled(false)
-    , _alphaToCoverageUseDefault(true)
-    , _alphaToCoverageEnabled(true)
+    , _alphaToCoverageEnabled(false)
     , _colorMaskUseDefault(true)
-    , _colorMask(HdRenderPassState::ColorMaskRGBA)
     , _useMultiSampleAov(true)
+
 {
 }
 
-HdRenderPassState::~HdRenderPassState()
-{
-    /*NOTHING*/
-}
+HdRenderPassState::~HdRenderPassState() = default;
 
 /* virtual */
 void
@@ -97,36 +96,6 @@ HdRenderPassState::Prepare(HdResourceRegistrySharedPtr const &resourceRegistry)
     if(!TfDebug::IsEnabled(HD_FREEZE_CULL_FRUSTUM)) {
         _cullMatrix = GetWorldToViewMatrix() * GetProjectionMatrix();
     }
-}
-
-/* virtual */
-void
-HdRenderPassState::Bind()
-{
-}
-
-/* virtual */
-void
-HdRenderPassState::Unbind()
-{
-}
-
-void
-HdRenderPassState::SetCameraFramingState(GfMatrix4d const &worldToViewMatrix,
-                                         GfMatrix4d const &projectionMatrix,
-                                         GfVec4d const &viewport,
-                                         ClipPlanesVector const & clipPlanes)
-{
-    if (_camera) {
-        // If a camera handle was set, reset it.
-        _camera = nullptr;
-    }
-
-    _worldToViewMatrix = worldToViewMatrix;
-    _projectionMatrix = projectionMatrix;
-    _viewport = GfVec4f((float)viewport[0], (float)viewport[1],
-                        (float)viewport[2], (float)viewport[3]);
-    _clipPlanes = clipPlanes;
 }
 
 void
@@ -139,15 +108,46 @@ HdRenderPassState::SetCameraAndViewport(HdCamera const *camera,
     _camera = camera;
     _viewport = GfVec4f((float)viewport[0], (float)viewport[1],
                         (float)viewport[2], (float)viewport[3]);
+
+    // Invalidate framing so that it isn't used by GetProjectionMatrix().
+    _framing = CameraUtilFraming();
 }
 
-GfMatrix4d const&
+void
+HdRenderPassState::SetCameraAndFraming(
+    HdCamera const *camera,
+    const CameraUtilFraming &framing,
+    const std::pair<bool, CameraUtilConformWindowPolicy> &overrideWindowPolicy)
+{
+    if (!camera) {
+        TF_CODING_ERROR("Received null camera\n");
+    }
+    _camera = camera;
+    _framing = framing;
+    _overrideWindowPolicy = overrideWindowPolicy;
+}
+
+GfMatrix4d
 HdRenderPassState::GetWorldToViewMatrix() const
 {
     if (!_camera) {
         return _worldToViewMatrix;
     }
+
     return _camera->GetViewMatrix();
+}
+
+CameraUtilConformWindowPolicy
+HdRenderPassState::GetWindowPolicy() const
+{
+    if (_overrideWindowPolicy.first) {
+        return _overrideWindowPolicy.second;
+    }
+    if (_camera) {
+        return _camera->GetWindowPolicy();
+    }
+
+    return CameraUtilFit;
 }
 
 GfMatrix4d
@@ -157,14 +157,20 @@ HdRenderPassState::GetProjectionMatrix() const
         return _projectionMatrix;
     }
 
-    // Adjust the camera frustum based on the window policy.
-    GfMatrix4d projection = _camera->GetProjectionMatrix(); 
-    CameraUtilConformWindowPolicy const& policy =
-        _camera->GetWindowPolicy();
-    projection = CameraUtilConformedWindow(projection, policy,
-        _viewport[3] != 0.0 ? _viewport[2] / _viewport[3] : 1.0);
+    if (_framing.IsValid()) {
+        return
+            _framing.ApplyToProjectionMatrix(
+                _camera->GetProjectionMatrix(),
+                GetWindowPolicy());
+    }
 
-    return projection;
+    CameraUtilConformWindowPolicy const policy = _camera->GetWindowPolicy();
+    const double aspect =
+        (_viewport[3] != 0.0 ? _viewport[2] / _viewport[3] : 1.0);
+
+    // Adjust the camera frustum based on the window policy.
+    return CameraUtilConformedWindow(
+        _camera->GetProjectionMatrix(), policy, aspect);
 }
 
 HdRenderPassState::ClipPlanesVector const &
@@ -311,6 +317,18 @@ HdRenderPassState::GetEnableDepthMask()
 }
 
 void
+HdRenderPassState::SetEnableDepthTest(bool enabled)
+{
+    _depthTestEnabled = enabled;
+}
+
+bool
+HdRenderPassState::GetEnableDepthTest() const
+{
+    return _depthTestEnabled;
+}
+
+void
 HdRenderPassState::SetStencil(HdCompareFunction func,
         int ref, int mask,
         HdStencilOp fail, HdStencilOp zfail, HdStencilOp zpass)
@@ -327,6 +345,12 @@ void
 HdRenderPassState::SetStencilEnabled(bool enabled)
 {
     _stencilEnabled = enabled;
+}
+
+bool
+HdRenderPassState::GetStencilEnabled() const
+{
+    return _stencilEnabled;
 }
 
 void
@@ -364,12 +388,6 @@ HdRenderPassState::SetBlendEnabled(bool enabled)
 }
 
 void
-HdRenderPassState::SetAlphaToCoverageUseDefault(bool useDefault)
-{
-    _alphaToCoverageUseDefault = useDefault;
-}
-
-void
 HdRenderPassState::SetAlphaToCoverageEnabled(bool enabled)
 {
     _alphaToCoverageEnabled = enabled;
@@ -382,9 +400,10 @@ HdRenderPassState::SetColorMaskUseDefault(bool useDefault)
 }
 
 void
-HdRenderPassState::SetColorMask(HdRenderPassState::ColorMask const& mask)
+HdRenderPassState::SetColorMasks(
+    std::vector<HdRenderPassState::ColorMask> const& masks)
 {
-    _colorMask = mask;
+    _colorMasks = masks;
 }
 
 PXR_NAMESPACE_CLOSE_SCOPE
